@@ -74,6 +74,11 @@ const Navbar = () => {
           href: "/services/performance-marketing-for-agri-brands"
         }
       ]
+    },
+    {
+      name: "Blog",
+      href: "/blog",
+      type: "link"
     }
   ];
 
