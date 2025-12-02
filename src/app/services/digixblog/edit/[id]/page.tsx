@@ -1,20 +1,27 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, use } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { BLOG_CATEGORIES } from '@/types/blog';
+import type { Blog } from '@/types/blog';
 import {
   Bold, Italic, List, Link as LinkIcon, Underline,
   AlignLeft, AlignCenter, AlignRight, Eye, Save,
   FileImage, Quote, Heading1, Heading2, Heading3,
-  Undo, Redo, ListOrdered, Minus, Trash2,
+  Undo, Redo, ListOrdered, Minus,
   FileText, Clock, Check, AlertCircle, X,
   Download, Edit3, ChevronLeft, Loader2
 } from 'lucide-react';
 
-export default function DigiXBlogCreator() {
+interface PageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function EditBlog({ params }: PageProps) {
+  const { id } = use(params);
+  
   // Form States
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
@@ -26,8 +33,10 @@ export default function DigiXBlogCreator() {
   const [metaTitle, setMetaTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
   const [slug, setSlug] = useState('');
+  const [status, setStatus] = useState<'draft' | 'published'>('draft');
   
   // UI States
+  const [isLoading, setIsLoading] = useState(true);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -36,14 +45,46 @@ export default function DigiXBlogCreator() {
   
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // Auto-generate slug from title
+  // Fetch blog data
   useEffect(() => {
-    const generated = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    setSlug(generated);
-  }, [title]);
+    const fetchBlog = async () => {
+      try {
+        const response = await fetch(`/api/blogs/${id}`);
+        const data = await response.json() as { success?: boolean; blog?: Blog; error?: string };
+        
+        if (data.success && data.blog) {
+          const blog = data.blog;
+          setTitle(blog.title);
+          setSubtitle(blog.subtitle);
+          setContent(blog.content);
+          setAuthor(blog.author);
+          setCategory(blog.category);
+          setTags(blog.tags.join(', '));
+          setThumbnail(blog.thumbnail);
+          setMetaTitle(blog.metaTitle);
+          setMetaDescription(blog.metaDescription);
+          setSlug(blog.slug);
+          setStatus(blog.status);
+          setHistory([blog.content]);
+          
+          // Set editor content after component mounts
+          setTimeout(() => {
+            if (editorRef.current) {
+              editorRef.current.innerHTML = blog.content;
+            }
+          }, 100);
+        } else {
+          setSaveMessage({ type: 'error', text: 'Blog not found' });
+        }
+      } catch {
+        setSaveMessage({ type: 'error', text: 'Failed to fetch blog' });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    void fetchBlog();
+  }, [id]);
 
   // Calculate statistics
   const plainText = content.replace(/<[^>]*>/g, '');
@@ -163,7 +204,7 @@ export default function DigiXBlogCreator() {
   };
 
   // Save Blog
-  const saveBlog = async (status: 'draft' | 'published') => {
+  const saveBlog = useCallback(async (newStatus?: 'draft' | 'published') => {
     if (!title.trim()) {
       setSaveMessage({ type: 'error', text: 'Please enter a title' });
       setTimeout(() => setSaveMessage(null), 3000);
@@ -174,8 +215,8 @@ export default function DigiXBlogCreator() {
     setSaveMessage(null);
 
     try {
-      const response = await fetch('/api/blogs', {
-        method: 'POST',
+      const response = await fetch(`/api/blogs/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title,
@@ -188,37 +229,25 @@ export default function DigiXBlogCreator() {
           metaTitle: metaTitle || title,
           metaDescription,
           slug,
-          status,
+          status: newStatus || status,
         }),
       });
 
       const data = await response.json() as { success?: boolean; error?: string };
 
       if (response.ok && data.success) {
-        setSaveMessage({ type: 'success', text: `Blog ${status === 'draft' ? 'saved as draft' : 'published'} successfully!` });
-        // Clear form after successful save
-        setTimeout(() => {
-          setTitle('');
-          setSubtitle('');
-          setContent('');
-          setAuthor('');
-          setCategory('');
-          setTags('');
-          setThumbnail(null);
-          setMetaTitle('');
-          setMetaDescription('');
-          if (editorRef.current) editorRef.current.innerHTML = '';
-          setSaveMessage(null);
-        }, 2000);
+        if (newStatus) setStatus(newStatus);
+        setSaveMessage({ type: 'success', text: 'Blog updated successfully!' });
+        setTimeout(() => setSaveMessage(null), 3000);
       } else {
-        setSaveMessage({ type: 'error', text: data.error || 'Failed to save blog' });
+        setSaveMessage({ type: 'error', text: data.error || 'Failed to update blog' });
       }
     } catch {
-      setSaveMessage({ type: 'error', text: 'Failed to save blog. Please try again.' });
+      setSaveMessage({ type: 'error', text: 'Failed to update blog. Please try again.' });
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [id, title, subtitle, content, author, category, tags, thumbnail, metaTitle, metaDescription, slug, status]);
 
   // Export as JSON
   const exportJSON = () => {
@@ -235,7 +264,7 @@ export default function DigiXBlogCreator() {
       metaDescription,
       wordCount,
       readingTime,
-      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -245,24 +274,6 @@ export default function DigiXBlogCreator() {
     a.download = `${slug || 'blog'}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  // Clear form
-  const clearForm = () => {
-    if (confirm('Clear all content? This cannot be undone.')) {
-      setTitle('');
-      setSubtitle('');
-      setContent('');
-      setAuthor('');
-      setCategory('');
-      setTags('');
-      setThumbnail(null);
-      setMetaTitle('');
-      setMetaDescription('');
-      if (editorRef.current) editorRef.current.innerHTML = '';
-      setHistory(['']);
-      setHistoryIndex(0);
-    }
   };
 
   // Keyboard shortcuts
@@ -283,12 +294,15 @@ export default function DigiXBlogCreator() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        void saveBlog();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [formatText, undo, redo]);
+  }, [formatText, undo, redo, saveBlog]);
 
   // Toolbar Button
   const ToolbarButton = ({ onClick, icon: Icon, title, disabled = false }: {
@@ -312,6 +326,14 @@ export default function DigiXBlogCreator() {
     </button>
   );
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -323,8 +345,17 @@ export default function DigiXBlogCreator() {
                 <ChevronLeft size={24} />
               </Link>
               <div>
-                <h1 className="text-2xl font-bold text-foreground">DigiXBlog Creator</h1>
-                <p className="text-sm text-muted-foreground">Create and publish your blog posts</p>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold text-foreground">Edit Blog</h1>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    status === 'published'
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {status === 'published' ? 'Published' : 'Draft'}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">Update your blog post</p>
               </div>
             </div>
             
@@ -363,7 +394,7 @@ export default function DigiXBlogCreator() {
                 className="gap-2"
               >
                 {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                Publish
+                {status === 'published' ? 'Update' : 'Publish'}
               </Button>
             </div>
           </div>
@@ -450,10 +481,6 @@ export default function DigiXBlogCreator() {
                   <ToolbarButton onClick={() => formatText('alignLeft')} icon={AlignLeft} title="Align Left" />
                   <ToolbarButton onClick={() => formatText('alignCenter')} icon={AlignCenter} title="Align Center" />
                   <ToolbarButton onClick={() => formatText('alignRight')} icon={AlignRight} title="Align Right" />
-                  
-                  <div className="flex-1" />
-                  
-                  <ToolbarButton onClick={clearForm} icon={Trash2} title="Clear All" />
                 </div>
               </div>
 
@@ -480,13 +507,7 @@ export default function DigiXBlogCreator() {
                     [&_img]:rounded-lg [&_img]:my-4
                   "
                   suppressContentEditableWarning
-                >
-                  {!content && (
-                    <p className="text-gray-400 italic pointer-events-none">
-                      Start writing your blog post here...
-                    </p>
-                  )}
-                </div>
+                />
               </div>
 
               {/* Stats */}
@@ -636,13 +657,17 @@ export default function DigiXBlogCreator() {
                 </div>
               </div>
 
-              {/* Quick Links */}
+              {/* Actions */}
               <div className="bg-[#FEF4E8] rounded-2xl p-6">
-                <h3 className="font-semibold text-foreground mb-3">Quick Links</h3>
+                <h3 className="font-semibold text-foreground mb-3">Quick Actions</h3>
                 <div className="space-y-2">
                   <Link href="/services/digixblog/manage" className="flex items-center gap-2 text-sm text-primary hover:underline">
                     <FileText size={16} />
-                    Manage Blogs
+                    Back to Blog List
+                  </Link>
+                  <Link href="/services/digixblog" className="flex items-center gap-2 text-sm text-primary hover:underline">
+                    <Edit3 size={16} />
+                    Create New Blog
                   </Link>
                 </div>
               </div>

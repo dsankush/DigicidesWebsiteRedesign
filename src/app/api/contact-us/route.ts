@@ -4,7 +4,14 @@ import { Resend } from 'resend';
 
 export const runtime = 'nodejs'; // ✅ Ensures Node environment on Vercel
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazily instantiate Resend to avoid build-time errors when API key is not set
+let resend: Resend | null = null;
+function getResend(): Resend {
+  if (!resend) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
+}
 const WEBHOOK_URL = process.env.WEBHOOK_URL; // ✅ Add webhook URL to environment variables
 
 export async function POST(req: Request) {
@@ -26,7 +33,7 @@ export async function POST(req: Request) {
     }
 
     // ✅ Send the email through Resend
-    const data = await resend.emails.send({
+    const data = await getResend().emails.send({
       from: 'connect@dreamlaunch.studio',
       to: ['connect@digicides.com', 'jeet.das@digicides.com', 'manoj.rajput@digicides.com'],
       subject: `New Contact Form Submission from ${name}${organization ? ` (${organization})` : ''}`,
