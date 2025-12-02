@@ -7,6 +7,13 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import {
+  getLocalBlogs,
+  saveLocalBlogs,
+  deleteLocalBlog,
+  updateLocalBlog,
+  syncWithApiBlogs,
+} from '@/lib/blog-storage';
+import {
   Plus, Search, Edit3, Trash2, Eye, Calendar,
   Clock, FileText, Tag, User, ChevronLeft, Loader2,
   AlertCircle, Check, Filter, Download,
@@ -27,19 +34,28 @@ export default function BlogManagement() {
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Fetch blogs
+  // Fetch blogs from API and localStorage
   const fetchBlogs = useCallback(async () => {
     setIsLoading(true);
     try {
+      // First try to get blogs from API
       const response = await fetch('/api/blogs');
       const data = await response.json() as { success?: boolean; blogs?: Blog[] };
+      
       if (data.success && data.blogs) {
-        setBlogs(data.blogs);
-        setFilteredBlogs(data.blogs);
+        // Sync API blogs with localStorage
+        const mergedBlogs = syncWithApiBlogs(data.blogs);
+        setBlogs(mergedBlogs);
+        setFilteredBlogs(mergedBlogs);
+      } else {
+        throw new Error('API failed');
       }
     } catch (error) {
-      console.error('Failed to fetch blogs:', error);
-      setMessage({ type: 'error', text: 'Failed to fetch blogs' });
+      console.log('API failed, using localStorage:', error);
+      // Fallback to localStorage
+      const localBlogs = getLocalBlogs();
+      setBlogs(localBlogs);
+      setFilteredBlogs(localBlogs);
     } finally {
       setIsLoading(false);
     }
@@ -83,25 +99,36 @@ export default function BlogManagement() {
   // Delete blog
   const handleDelete = async (id: string) => {
     setDeletingId(id);
+    
     try {
+      // Try API first
       const response = await fetch(`/api/blogs/${id}`, {
         method: 'DELETE',
       });
       const data = await response.json() as { success?: boolean; error?: string };
 
       if (response.ok && data.success) {
+        // Also delete from localStorage
+        deleteLocalBlog(id);
         setBlogs(prev => prev.filter(b => b.id !== id));
         setMessage({ type: 'success', text: 'Blog deleted successfully' });
-        setShowDeleteModal(false);
-        setSelectedBlog(null);
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to delete blog' });
+        throw new Error(data.error || 'API failed');
       }
     } catch (error) {
-      console.error('Delete error:', error);
-      setMessage({ type: 'error', text: 'Failed to delete blog' });
+      console.log('API delete failed, trying localStorage:', error);
+      // Fallback to localStorage
+      const deleted = deleteLocalBlog(id);
+      if (deleted) {
+        setBlogs(prev => prev.filter(b => b.id !== id));
+        setMessage({ type: 'success', text: 'Blog deleted successfully' });
+      } else {
+        setMessage({ type: 'error', text: 'Failed to delete blog' });
+      }
     } finally {
       setDeletingId(null);
+      setShowDeleteModal(false);
+      setSelectedBlog(null);
     }
   };
 
@@ -109,7 +136,9 @@ export default function BlogManagement() {
   const toggleStatus = async (blog: Blog) => {
     setTogglingId(blog.id);
     const newStatus = blog.status === 'published' ? 'draft' : 'published';
+    
     try {
+      // Try API first
       const response = await fetch(`/api/blogs/${blog.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -118,14 +147,23 @@ export default function BlogManagement() {
       const data = await response.json() as { success?: boolean; blog?: Blog; error?: string };
 
       if (response.ok && data.success && data.blog) {
-        setBlogs(prev => prev.map(b => b.id === blog.id ? data.blog! : b));
+        // Also update localStorage
+        updateLocalBlog(blog.id, { status: newStatus });
+        setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
         setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
       } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to update blog status' });
+        throw new Error(data.error || 'API failed');
       }
     } catch (error) {
-      console.error('Toggle status error:', error);
-      setMessage({ type: 'error', text: 'Failed to update blog status' });
+      console.log('API update failed, trying localStorage:', error);
+      // Fallback to localStorage
+      const updated = updateLocalBlog(blog.id, { status: newStatus });
+      if (updated) {
+        setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
+        setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update blog status' });
+      }
     } finally {
       setTogglingId(null);
     }
@@ -164,6 +202,99 @@ export default function BlogManagement() {
     URL.revokeObjectURL(url);
   };
 
+  // Export blog as PDF
+  const exportBlogAsPDF = (blog: Blog) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow popups to export PDF');
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${blog.title}</title>
+          <style>
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
+            body { 
+              font-family: Georgia, 'Times New Roman', serif; 
+              max-width: 800px; 
+              margin: 40px auto; 
+              padding: 20px;
+              line-height: 1.8;
+              color: #333;
+            }
+            h1 { font-size: 32px; margin-bottom: 8px; color: #111; }
+            h2 { font-size: 24px; margin-top: 32px; margin-bottom: 16px; color: #222; }
+            h3 { font-size: 20px; margin-top: 24px; margin-bottom: 12px; color: #333; }
+            .subtitle { font-size: 18px; color: #666; margin-bottom: 24px; }
+            .meta { 
+              display: flex; 
+              gap: 16px; 
+              color: #666; 
+              font-size: 14px; 
+              margin-bottom: 32px;
+              padding-bottom: 16px;
+              border-bottom: 1px solid #eee;
+            }
+            .content { margin-top: 24px; }
+            .content p { margin-bottom: 16px; }
+            .content ul, .content ol { margin-left: 24px; margin-bottom: 16px; }
+            .content li { margin-bottom: 8px; }
+            .content blockquote { 
+              border-left: 4px solid #E07B00; 
+              padding-left: 16px; 
+              margin: 24px 0;
+              font-style: italic;
+              color: #555;
+            }
+            .content img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }
+            .content a { color: #E07B00; }
+            .tags { margin-top: 32px; padding-top: 16px; border-top: 1px solid #eee; }
+            .tag { 
+              display: inline-block; 
+              background: #FEF4E8; 
+              color: #E07B00; 
+              padding: 4px 12px; 
+              border-radius: 16px; 
+              font-size: 12px;
+              margin-right: 8px;
+            }
+            .cover-image { width: 100%; max-height: 400px; object-fit: cover; border-radius: 12px; margin-bottom: 24px; }
+            @page { margin: 2cm; }
+          </style>
+        </head>
+        <body>
+          ${blog.thumbnail ? `<img src="${blog.thumbnail}" alt="${blog.title}" class="cover-image" />` : ''}
+          <h1>${blog.title}</h1>
+          ${blog.subtitle ? `<p class="subtitle">${blog.subtitle}</p>` : ''}
+          <div class="meta">
+            ${blog.author ? `<span>By ${blog.author}</span>` : ''}
+            ${blog.category ? `<span>• ${blog.category}</span>` : ''}
+            <span>• ${blog.readingTime} min read</span>
+            <span>• ${new Date(blog.createdAt).toLocaleDateString()}</span>
+          </div>
+          <div class="content">${blog.content}</div>
+          ${blog.tags.length > 0 ? `
+            <div class="tags">
+              ${blog.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}
+            </div>
+          ` : ''}
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
   // Clear message after 3 seconds
   useEffect(() => {
     if (message) {
@@ -171,6 +302,13 @@ export default function BlogManagement() {
       return () => clearTimeout(timer);
     }
   }, [message]);
+
+  // Sync localStorage on any changes
+  useEffect(() => {
+    if (blogs.length > 0) {
+      saveLocalBlogs(blogs);
+    }
+  }, [blogs]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -188,12 +326,13 @@ export default function BlogManagement() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <Button
                 variant="outline"
                 onClick={exportAllBlogs}
                 className="gap-2"
                 disabled={blogs.length === 0}
+                size="sm"
               >
                 <Download size={16} />
                 <span className="hidden sm:inline">Export All</span>
@@ -203,13 +342,14 @@ export default function BlogManagement() {
                 variant="outline"
                 onClick={() => void fetchBlogs()}
                 className="gap-2"
+                size="sm"
               >
                 <RefreshCw size={16} />
                 <span className="hidden sm:inline">Refresh</span>
               </Button>
 
               <Link href="/services/digixblog">
-                <Button className="gap-2">
+                <Button className="gap-2" size="sm">
                   <Plus size={16} />
                   Create Blog
                 </Button>
@@ -449,7 +589,7 @@ export default function BlogManagement() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
                         {/* Preview - opens in new tab */}
                         {blog.status === 'published' && (
                           <a
@@ -488,13 +628,22 @@ export default function BlogManagement() {
                           <Edit3 size={18} className="text-blue-600" />
                         </button>
 
-                        {/* Export */}
+                        {/* Export JSON */}
                         <button
                           onClick={() => exportBlog(blog)}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                           title="Export JSON"
                         >
                           <Download size={18} className="text-gray-500" />
+                        </button>
+
+                        {/* Export PDF */}
+                        <button
+                          onClick={() => exportBlogAsPDF(blog)}
+                          className="p-2 hover:bg-purple-50 rounded-lg transition-colors"
+                          title="Export PDF"
+                        >
+                          <FileText size={18} className="text-purple-600" />
                         </button>
 
                         {/* Delete */}
