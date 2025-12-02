@@ -8,10 +8,9 @@ import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import {
   getLocalBlogs,
-  saveLocalBlogs,
   deleteLocalBlog,
   updateLocalBlog,
-  syncWithApiBlogs,
+  initializeFromApi,
 } from '@/lib/blog-storage';
 import {
   Plus, Search, Edit3, Trash2, Eye, Calendar,
@@ -34,31 +33,16 @@ export default function BlogManagement() {
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Fetch blogs from API and localStorage
+  // Fetch blogs from localStorage (initialized from API once)
   const fetchBlogs = useCallback(async () => {
     setIsLoading(true);
-    try {
-      // First try to get blogs from API
-      const response = await fetch('/api/blogs');
-      const data = await response.json() as { success?: boolean; blogs?: Blog[] };
-      
-      if (data.success && data.blogs) {
-        // Sync API blogs with localStorage
-        const mergedBlogs = syncWithApiBlogs(data.blogs);
-        setBlogs(mergedBlogs);
-        setFilteredBlogs(mergedBlogs);
-      } else {
-        throw new Error('API failed');
-      }
-    } catch (error) {
-      console.log('API failed, using localStorage:', error);
-      // Fallback to localStorage
-      const localBlogs = getLocalBlogs();
-      setBlogs(localBlogs);
-      setFilteredBlogs(localBlogs);
-    } finally {
-      setIsLoading(false);
-    }
+    
+    // Initialize from API if first time, otherwise just get local
+    const allBlogs = await initializeFromApi();
+    setBlogs(allBlogs);
+    setFilteredBlogs(allBlogs);
+    
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -96,40 +80,31 @@ export default function BlogManagement() {
   // Get unique categories
   const categories = [...new Set(blogs.map(blog => blog.category).filter(Boolean))];
 
+  // Refresh from localStorage only (not API)
+  const refreshBlogs = () => {
+    const localBlogs = getLocalBlogs();
+    setBlogs(localBlogs);
+    setFilteredBlogs(localBlogs);
+    setMessage({ type: 'success', text: 'Blogs refreshed' });
+  };
+
   // Delete blog
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     
-    try {
-      // Try API first
-      const response = await fetch(`/api/blogs/${id}`, {
-        method: 'DELETE',
-      });
-      const data = await response.json() as { success?: boolean; error?: string };
-
-      if (response.ok && data.success) {
-        // Also delete from localStorage
-        deleteLocalBlog(id);
-        setBlogs(prev => prev.filter(b => b.id !== id));
-        setMessage({ type: 'success', text: 'Blog deleted successfully' });
-      } else {
-        throw new Error(data.error || 'API failed');
-      }
-    } catch (error) {
-      console.log('API delete failed, trying localStorage:', error);
-      // Fallback to localStorage
-      const deleted = deleteLocalBlog(id);
-      if (deleted) {
-        setBlogs(prev => prev.filter(b => b.id !== id));
-        setMessage({ type: 'success', text: 'Blog deleted successfully' });
-      } else {
-        setMessage({ type: 'error', text: 'Failed to delete blog' });
-      }
-    } finally {
-      setDeletingId(null);
-      setShowDeleteModal(false);
-      setSelectedBlog(null);
+    // Delete from localStorage
+    const deleted = deleteLocalBlog(id);
+    
+    if (deleted) {
+      setBlogs(prev => prev.filter(b => b.id !== id));
+      setMessage({ type: 'success', text: 'Blog deleted successfully' });
+    } else {
+      setMessage({ type: 'error', text: 'Failed to delete blog' });
     }
+    
+    setDeletingId(null);
+    setShowDeleteModal(false);
+    setSelectedBlog(null);
   };
 
   // Toggle publish status
@@ -137,36 +112,17 @@ export default function BlogManagement() {
     setTogglingId(blog.id);
     const newStatus = blog.status === 'published' ? 'draft' : 'published';
     
-    try {
-      // Try API first
-      const response = await fetch(`/api/blogs/${blog.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const data = await response.json() as { success?: boolean; blog?: Blog; error?: string };
-
-      if (response.ok && data.success && data.blog) {
-        // Also update localStorage
-        updateLocalBlog(blog.id, { status: newStatus });
-        setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
-        setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
-      } else {
-        throw new Error(data.error || 'API failed');
-      }
-    } catch (error) {
-      console.log('API update failed, trying localStorage:', error);
-      // Fallback to localStorage
-      const updated = updateLocalBlog(blog.id, { status: newStatus });
-      if (updated) {
-        setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
-        setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
-      } else {
-        setMessage({ type: 'error', text: 'Failed to update blog status' });
-      }
-    } finally {
-      setTogglingId(null);
+    // Update in localStorage
+    const updated = updateLocalBlog(blog.id, { status: newStatus });
+    
+    if (updated) {
+      setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
+      setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
+    } else {
+      setMessage({ type: 'error', text: 'Failed to update blog status' });
     }
+    
+    setTogglingId(null);
   };
 
   // Navigate to edit page
@@ -216,53 +172,22 @@ export default function BlogManagement() {
         <head>
           <title>${blog.title}</title>
           <style>
-            @media print {
-              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            }
-            body { 
-              font-family: Georgia, 'Times New Roman', serif; 
-              max-width: 800px; 
-              margin: 40px auto; 
-              padding: 20px;
-              line-height: 1.8;
-              color: #333;
-            }
+            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+            body { font-family: Georgia, 'Times New Roman', serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.8; color: #333; }
             h1 { font-size: 32px; margin-bottom: 8px; color: #111; }
             h2 { font-size: 24px; margin-top: 32px; margin-bottom: 16px; color: #222; }
             h3 { font-size: 20px; margin-top: 24px; margin-bottom: 12px; color: #333; }
             .subtitle { font-size: 18px; color: #666; margin-bottom: 24px; }
-            .meta { 
-              display: flex; 
-              gap: 16px; 
-              color: #666; 
-              font-size: 14px; 
-              margin-bottom: 32px;
-              padding-bottom: 16px;
-              border-bottom: 1px solid #eee;
-            }
+            .meta { display: flex; gap: 16px; color: #666; font-size: 14px; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #eee; }
             .content { margin-top: 24px; }
             .content p { margin-bottom: 16px; }
             .content ul, .content ol { margin-left: 24px; margin-bottom: 16px; }
             .content li { margin-bottom: 8px; }
-            .content blockquote { 
-              border-left: 4px solid #E07B00; 
-              padding-left: 16px; 
-              margin: 24px 0;
-              font-style: italic;
-              color: #555;
-            }
+            .content blockquote { border-left: 4px solid #E07B00; padding-left: 16px; margin: 24px 0; font-style: italic; color: #555; }
             .content img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }
             .content a { color: #E07B00; }
             .tags { margin-top: 32px; padding-top: 16px; border-top: 1px solid #eee; }
-            .tag { 
-              display: inline-block; 
-              background: #FEF4E8; 
-              color: #E07B00; 
-              padding: 4px 12px; 
-              border-radius: 16px; 
-              font-size: 12px;
-              margin-right: 8px;
-            }
+            .tag { display: inline-block; background: #FEF4E8; color: #E07B00; padding: 4px 12px; border-radius: 16px; font-size: 12px; margin-right: 8px; }
             .cover-image { width: 100%; max-height: 400px; object-fit: cover; border-radius: 12px; margin-bottom: 24px; }
             @page { margin: 2cm; }
           </style>
@@ -278,21 +203,14 @@ export default function BlogManagement() {
             <span>• ${new Date(blog.createdAt).toLocaleDateString()}</span>
           </div>
           <div class="content">${blog.content}</div>
-          ${blog.tags.length > 0 ? `
-            <div class="tags">
-              ${blog.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}
-            </div>
-          ` : ''}
+          ${blog.tags.length > 0 ? `<div class="tags">${blog.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}</div>` : ''}
         </body>
       </html>
     `;
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-    
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
+    setTimeout(() => printWindow.print(), 500);
   };
 
   // Clear message after 3 seconds
@@ -302,13 +220,6 @@ export default function BlogManagement() {
       return () => clearTimeout(timer);
     }
   }, [message]);
-
-  // Sync localStorage on any changes
-  useEffect(() => {
-    if (blogs.length > 0) {
-      saveLocalBlogs(blogs);
-    }
-  }, [blogs]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -340,7 +251,7 @@ export default function BlogManagement() {
 
               <Button
                 variant="outline"
-                onClick={() => void fetchBlogs()}
+                onClick={refreshBlogs}
                 className="gap-2"
                 size="sm"
               >

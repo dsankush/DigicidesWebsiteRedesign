@@ -1,6 +1,7 @@
 import type { Blog } from '@/types/blog';
 
 const STORAGE_KEY = 'digicides_blogs';
+const INITIALIZED_KEY = 'digicides_blogs_initialized';
 
 // Get blogs from localStorage
 export function getLocalBlogs(): Blog[] {
@@ -25,6 +26,47 @@ export function saveLocalBlogs(blogs: Blog[]): void {
   } catch (e) {
     console.error('Error saving to localStorage:', e);
   }
+}
+
+// Check if localStorage has been initialized with API data
+export function isInitialized(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(INITIALIZED_KEY) === 'true';
+}
+
+// Mark as initialized
+export function markInitialized(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(INITIALIZED_KEY, 'true');
+}
+
+// Initialize localStorage with API data (only once)
+export async function initializeFromApi(): Promise<Blog[]> {
+  if (typeof window === 'undefined') return [];
+  
+  // If already initialized, just return local blogs
+  if (isInitialized()) {
+    return getLocalBlogs();
+  }
+  
+  // Try to fetch from API
+  try {
+    const response = await fetch('/api/blogs');
+    const data = await response.json() as { success?: boolean; blogs?: Blog[] };
+    
+    if (data.success && data.blogs && data.blogs.length > 0) {
+      // Save API blogs to localStorage
+      saveLocalBlogs(data.blogs);
+      markInitialized();
+      return data.blogs;
+    }
+  } catch (e) {
+    console.log('Failed to fetch from API:', e);
+  }
+  
+  // Mark as initialized even if API fails
+  markInitialized();
+  return getLocalBlogs();
 }
 
 // Add a new blog
@@ -71,17 +113,10 @@ export function getLocalBlog(idOrSlug: string): Blog | null {
   return blogs.find(b => b.id === idOrSlug || b.slug === idOrSlug) || null;
 }
 
-// Sync local blogs with API data
-export function syncWithApiBlogs(apiBlogs: Blog[]): Blog[] {
-  const localBlogs = getLocalBlogs();
-  
-  // Merge: API blogs take precedence, but keep local-only blogs
-  const apiIds = new Set(apiBlogs.map(b => b.id));
-  const localOnlyBlogs = localBlogs.filter(b => !apiIds.has(b.id));
-  
-  const mergedBlogs = [...apiBlogs, ...localOnlyBlogs];
-  saveLocalBlogs(mergedBlogs);
-  return mergedBlogs;
+// This is deprecated - use initializeFromApi instead
+export function syncWithApiBlogs(_apiBlogs: Blog[]): Blog[] {
+  // Now just returns what's in localStorage, doesn't sync
+  return getLocalBlogs();
 }
 
 // Generate unique ID
@@ -103,4 +138,11 @@ export function calculateReadingStats(content: string): { wordCount: number; rea
   const wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
   const readingTime = Math.max(1, Math.ceil(wordCount / 200));
   return { wordCount, readingTime };
+}
+
+// Clear all data (for testing)
+export function clearAllBlogs(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(INITIALIZED_KEY);
 }

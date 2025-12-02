@@ -1,51 +1,91 @@
+"use client";
+
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
-import fs from 'fs';
-import path from 'path';
-import { Clock, User, Tag, Calendar, ArrowRight, FileText } from 'lucide-react';
+import { Clock, User, Tag, Calendar, ArrowRight, FileText, Loader2 } from 'lucide-react';
 
-export const metadata = {
-  title: 'Blog | Digicides - Insights on Agri Marketing',
-  description: 'Read our latest articles on agriculture marketing, farmer engagement, rural development, and digital strategies for agri brands in India.',
-  alternates: {
-    canonical: 'https://www.digicides.com/blog',
-  },
-  openGraph: {
-    title: 'Blog | Digicides - Insights on Agri Marketing',
-    description: 'Read our latest articles on agriculture marketing, farmer engagement, rural development, and digital strategies for agri brands in India.',
-    url: 'https://www.digicides.com/blog',
-    siteName: 'Digicides',
-    locale: 'en_IN',
-    type: 'website',
-  },
-};
-
-interface BlogsData {
-  blogs: Blog[];
-}
-
-function getPublishedBlogs(): Blog[] {
-  try {
-    const filePath = path.join(process.cwd(), 'data', 'blogs', 'blogs.json');
-    const data = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(data) as BlogsData;
-    return parsed.blogs
-      .filter(blog => blog.status === 'published')
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  } catch {
-    return [];
-  }
-}
+const STORAGE_KEY = 'digicides_blogs';
 
 export default function BlogListingPage() {
-  const blogs = getPublishedBlogs();
-  const featuredBlog = blogs[0];
-  const otherBlogs = blogs.slice(1);
+  const [blogs, setBlogs] = useState<Blog[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Load blogs from localStorage and API
+  useEffect(() => {
+    const loadBlogs = async () => {
+      setIsLoading(true);
+      
+      // First, get from localStorage
+      let localBlogs: Blog[] = [];
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored) as { blogs: Blog[] };
+          localBlogs = parsed.blogs || [];
+        }
+      } catch (e) {
+        console.error('Error reading localStorage:', e);
+      }
+
+      // Try to fetch from API to get any server-side blogs
+      try {
+        const response = await fetch('/api/blogs');
+        const data = await response.json() as { success?: boolean; blogs?: Blog[] };
+        
+        if (data.success && data.blogs) {
+          // Merge: keep localStorage blogs but add any API-only blogs
+          const localIds = new Set(localBlogs.map(b => b.id));
+          const apiOnlyBlogs = data.blogs.filter(b => !localIds.has(b.id));
+          
+          // If localStorage is empty, use API blogs
+          if (localBlogs.length === 0) {
+            localBlogs = data.blogs;
+          } else {
+            // Add API-only blogs to local
+            localBlogs = [...localBlogs, ...apiOnlyBlogs];
+          }
+          
+          // Save merged result back to localStorage
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ blogs: localBlogs }));
+        }
+      } catch (e) {
+        console.log('API fetch failed, using localStorage only:', e);
+      }
+
+      // Filter to only published blogs and sort by date
+      const publishedBlogs = localBlogs
+        .filter(blog => blog.status === 'published')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      setBlogs(publishedBlogs);
+      setIsLoading(false);
+    };
+
+    void loadBlogs();
+  }, []);
 
   // Get unique categories
   const categories = [...new Set(blogs.map(blog => blog.category).filter(Boolean))];
+
+  // Filter blogs by category
+  const filteredBlogs = selectedCategory === 'all' 
+    ? blogs 
+    : blogs.filter(b => b.category === selectedCategory);
+
+  const featuredBlog = filteredBlogs[0];
+  const otherBlogs = filteredBlogs.slice(1);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 size={40} className="animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -64,22 +104,34 @@ export default function BlogListingPage() {
         {/* Categories */}
         {categories.length > 0 && (
           <div className="flex flex-wrap justify-center gap-3 mb-12">
-            <span className="px-4 py-2 bg-primary text-white rounded-full text-sm font-medium">
-              All Posts
-            </span>
+            <button
+              onClick={() => setSelectedCategory('all')}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                selectedCategory === 'all'
+                  ? 'bg-primary text-white'
+                  : 'bg-gray-100 hover:bg-primary/10 text-foreground'
+              }`}
+            >
+              All Posts ({blogs.length})
+            </button>
             {categories.map((category) => (
-              <span
+              <button
                 key={category}
-                className="px-4 py-2 bg-gray-100 hover:bg-primary/10 text-foreground rounded-full text-sm font-medium cursor-pointer transition-colors"
+                onClick={() => setSelectedCategory(category)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  selectedCategory === category
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 hover:bg-primary/10 text-foreground'
+                }`}
               >
                 {category}
-              </span>
+              </button>
             ))}
           </div>
         )}
       </section>
 
-      {blogs.length === 0 ? (
+      {filteredBlogs.length === 0 ? (
         /* Empty State */
         <section className="container mx-auto max-w-6xl px-4 py-20">
           <div className="text-center">
@@ -88,11 +140,19 @@ export default function BlogListingPage() {
               No blog posts yet
             </h2>
             <p className="text-muted-foreground mb-8">
-              We&apos;re working on some great content. Check back soon!
+              {selectedCategory !== 'all' 
+                ? `No posts in "${selectedCategory}" category.`
+                : "We're working on some great content. Check back soon!"}
             </p>
-            <Link href="/">
-              <Button>Back to Home</Button>
-            </Link>
+            {selectedCategory !== 'all' ? (
+              <Button onClick={() => setSelectedCategory('all')}>
+                View All Posts
+              </Button>
+            ) : (
+              <Link href="/">
+                <Button>Back to Home</Button>
+              </Link>
+            )}
           </div>
         </section>
       ) : (
