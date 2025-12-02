@@ -3,6 +3,9 @@ import fs from 'fs';
 import path from 'path';
 import type { Blog } from '@/types/blog';
 
+// Force dynamic rendering for this route
+export const dynamic = 'force-dynamic';
+
 const BLOGS_FILE_PATH = path.join(process.cwd(), 'data', 'blogs', 'blogs.json');
 
 interface BlogsData {

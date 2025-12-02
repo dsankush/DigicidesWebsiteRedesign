@@ -3,16 +3,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import {
   Plus, Search, Edit3, Trash2, Eye, Calendar,
   Clock, FileText, Tag, User, ChevronLeft, Loader2,
-  AlertCircle, Check, Filter, MoreVertical, Download,
-  RefreshCw
+  AlertCircle, Check, Filter, Download,
+  RefreshCw, ExternalLink, EyeOff
 } from 'lucide-react';
 
 export default function BlogManagement() {
+  const router = useRouter();
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [filteredBlogs, setFilteredBlogs] = useState<Blog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -21,6 +23,7 @@ export default function BlogManagement() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
@@ -34,7 +37,8 @@ export default function BlogManagement() {
         setBlogs(data.blogs);
         setFilteredBlogs(data.blogs);
       }
-    } catch {
+    } catch (error) {
+      console.error('Failed to fetch blogs:', error);
       setMessage({ type: 'error', text: 'Failed to fetch blogs' });
     } finally {
       setIsLoading(false);
@@ -54,8 +58,8 @@ export default function BlogManagement() {
       const query = searchQuery.toLowerCase();
       result = result.filter(blog =>
         blog.title.toLowerCase().includes(query) ||
-        blog.author.toLowerCase().includes(query) ||
-        blog.category.toLowerCase().includes(query) ||
+        blog.author?.toLowerCase().includes(query) ||
+        blog.category?.toLowerCase().includes(query) ||
         blog.tags.some(tag => tag.toLowerCase().includes(query))
       );
     }
@@ -85,7 +89,7 @@ export default function BlogManagement() {
       });
       const data = await response.json() as { success?: boolean; error?: string };
 
-      if (data.success) {
+      if (response.ok && data.success) {
         setBlogs(prev => prev.filter(b => b.id !== id));
         setMessage({ type: 'success', text: 'Blog deleted successfully' });
         setShowDeleteModal(false);
@@ -93,7 +97,8 @@ export default function BlogManagement() {
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to delete blog' });
       }
-    } catch {
+    } catch (error) {
+      console.error('Delete error:', error);
       setMessage({ type: 'error', text: 'Failed to delete blog' });
     } finally {
       setDeletingId(null);
@@ -102,6 +107,7 @@ export default function BlogManagement() {
 
   // Toggle publish status
   const toggleStatus = async (blog: Blog) => {
+    setTogglingId(blog.id);
     const newStatus = blog.status === 'published' ? 'draft' : 'published';
     try {
       const response = await fetch(`/api/blogs/${blog.id}`, {
@@ -109,15 +115,39 @@ export default function BlogManagement() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
-      const data = await response.json() as { success?: boolean; blog?: Blog };
+      const data = await response.json() as { success?: boolean; blog?: Blog; error?: string };
 
-      if (data.success && data.blog) {
+      if (response.ok && data.success && data.blog) {
         setBlogs(prev => prev.map(b => b.id === blog.id ? data.blog! : b));
         setMessage({ type: 'success', text: `Blog ${newStatus === 'published' ? 'published' : 'unpublished'} successfully` });
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to update blog status' });
       }
-    } catch {
+    } catch (error) {
+      console.error('Toggle status error:', error);
       setMessage({ type: 'error', text: 'Failed to update blog status' });
+    } finally {
+      setTogglingId(null);
     }
+  };
+
+  // Navigate to edit page
+  const handleEdit = (blogId: string) => {
+    router.push(`/services/digixblog/edit/${blogId}`);
+  };
+
+  // Export single blog
+  const exportBlog = (blog: Blog) => {
+    const data = JSON.stringify(blog, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${blog.slug}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // Export all blogs
@@ -128,7 +158,9 @@ export default function BlogManagement() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `blogs-export-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
@@ -145,7 +177,7 @@ export default function BlogManagement() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white border-b shadow-sm">
         <div className="container mx-auto max-w-6xl px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
               <Link href="/services" className="text-muted-foreground hover:text-foreground transition-colors">
                 <ChevronLeft size={24} />
@@ -164,7 +196,7 @@ export default function BlogManagement() {
                 disabled={blogs.length === 0}
               >
                 <Download size={16} />
-                Export All
+                <span className="hidden sm:inline">Export All</span>
               </Button>
 
               <Button
@@ -173,7 +205,7 @@ export default function BlogManagement() {
                 className="gap-2"
               >
                 <RefreshCw size={16} />
-                Refresh
+                <span className="hidden sm:inline">Refresh</span>
               </Button>
 
               <Link href="/services/digixblog">
@@ -332,29 +364,29 @@ export default function BlogManagement() {
                 key={blog.id}
                 className="bg-white rounded-2xl shadow-sm border p-6 hover:shadow-md transition-shadow"
               >
-                <div className="flex gap-6">
+                <div className="flex flex-col md:flex-row gap-6">
                   {/* Thumbnail */}
-                  {blog.thumbnail ? (
-                    <div className="flex-shrink-0">
+                  <div className="flex-shrink-0">
+                    {blog.thumbnail ? (
                       <Image
                         src={blog.thumbnail}
                         alt={blog.title}
                         width={160}
                         height={100}
-                        className="w-40 h-24 object-cover rounded-lg"
+                        className="w-full md:w-40 h-32 md:h-24 object-cover rounded-lg"
                       />
-                    </div>
-                  ) : (
-                    <div className="flex-shrink-0 w-40 h-24 bg-gray-100 rounded-lg flex items-center justify-center">
-                      <FileText size={24} className="text-gray-400" />
-                    </div>
-                  )}
+                    ) : (
+                      <div className="w-full md:w-40 h-32 md:h-24 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <FileText size={24} className="text-gray-400" />
+                      </div>
+                    )}
+                  </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             blog.status === 'published'
                               ? 'bg-green-100 text-green-700'
@@ -379,7 +411,7 @@ export default function BlogManagement() {
                           </p>
                         )}
 
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           {blog.author && (
                             <span className="flex items-center gap-1">
                               <User size={14} />
@@ -417,21 +449,55 @@ export default function BlogManagement() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Preview - opens in new tab */}
+                        {blog.status === 'published' && (
+                          <a
+                            href={`/blog/${blog.slug}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="View Live"
+                          >
+                            <ExternalLink size={18} className="text-blue-600" />
+                          </a>
+                        )}
+
+                        {/* Toggle Publish Status */}
                         <button
-                          onClick={() => toggleStatus(blog)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                          onClick={() => void toggleStatus(blog)}
+                          disabled={togglingId === blog.id}
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
                           title={blog.status === 'published' ? 'Unpublish' : 'Publish'}
                         >
-                          <Eye size={18} className={blog.status === 'published' ? 'text-green-600' : 'text-gray-400'} />
+                          {togglingId === blog.id ? (
+                            <Loader2 size={18} className="animate-spin text-gray-400" />
+                          ) : blog.status === 'published' ? (
+                            <EyeOff size={18} className="text-orange-500" />
+                          ) : (
+                            <Eye size={18} className="text-green-600" />
+                          )}
                         </button>
 
-                        <Link href={`/services/digixblog/edit/${blog.id}`}>
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Edit">
-                            <Edit3 size={18} className="text-blue-600" />
-                          </button>
-                        </Link>
+                        {/* Edit */}
+                        <button
+                          onClick={() => handleEdit(blog.id)}
+                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Edit"
+                        >
+                          <Edit3 size={18} className="text-blue-600" />
+                        </button>
 
+                        {/* Export */}
+                        <button
+                          onClick={() => exportBlog(blog)}
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="Export JSON"
+                        >
+                          <Download size={18} className="text-gray-500" />
+                        </button>
+
+                        {/* Delete */}
                         <button
                           onClick={() => {
                             setSelectedBlog(blog);
@@ -442,30 +508,6 @@ export default function BlogManagement() {
                         >
                           <Trash2 size={18} className="text-red-600" />
                         </button>
-
-                        <div className="relative group">
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                            <MoreVertical size={18} className="text-gray-400" />
-                          </button>
-                          <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg py-1 hidden group-hover:block min-w-[150px] z-10">
-                            <button
-                              onClick={() => {
-                                const data = JSON.stringify(blog, null, 2);
-                                const blob = new Blob([data], { type: 'application/json' });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${blog.slug}.json`;
-                                a.click();
-                                URL.revokeObjectURL(url);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
-                            >
-                              <Download size={14} />
-                              Export JSON
-                            </button>
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -478,7 +520,15 @@ export default function BlogManagement() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && selectedBlog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowDeleteModal(false);
+              setSelectedBlog(null);
+            }
+          }}
+        >
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center gap-4 mb-4">
               <div className="p-3 bg-red-100 rounded-full">
@@ -501,22 +551,22 @@ export default function BlogManagement() {
                   setShowDeleteModal(false);
                   setSelectedBlog(null);
                 }}
+                disabled={deletingId === selectedBlog.id}
               >
                 Cancel
               </Button>
-              <Button
-                variant="destructive"
-                onClick={() => handleDelete(selectedBlog.id)}
+              <button
+                onClick={() => void handleDelete(selectedBlog.id)}
                 disabled={deletingId === selectedBlog.id}
-                className="bg-red-600 hover:bg-red-700 text-white"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-medium transition-colors disabled:opacity-50"
               >
                 {deletingId === selectedBlog.id ? (
-                  <Loader2 size={16} className="animate-spin mr-2" />
+                  <Loader2 size={16} className="animate-spin" />
                 ) : (
-                  <Trash2 size={16} className="mr-2" />
+                  <Trash2 size={16} />
                 )}
                 Delete
-              </Button>
+              </button>
             </div>
           </div>
         </div>
