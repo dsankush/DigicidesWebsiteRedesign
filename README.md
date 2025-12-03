@@ -1,93 +1,356 @@
-# DigicidesWebsiteRedesign
+# Digicides - Rural Marketing & AgriTech Platform
 
+<p align="center">
+  <img src="public/Logo.png" alt="Digicides Logo" width="200"/>
+</p>
 
+A modern web application for **Digicides**, an agriculture marketing and rural engagement platform. Built with Next.js 15, TypeScript, Tailwind CSS, and Supabase.
 
-## Getting started
+## 🌾 About Digicides
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+Digicides is a rural marketing and AgriTech solutions company that helps brands connect with farmers across India. The platform offers:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- **Farmer Engagement Solutions** - Audio conferencing, WhatsApp communities, and mass communication tools
+- **Rural Rewards Programs** - Loyalty and reward systems for rural audiences
+- **Market Research** - Insights and analytics for agri-brands
+- **Performance Marketing** - Targeted campaigns for rural markets
+- **Analytics & Reporting** - Data-driven insights for campaign optimization
 
-## Add your files
+## 🚀 Tech Stack
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+| Technology | Purpose |
+|------------|---------|
+| **Next.js 15** | React framework with App Router |
+| **TypeScript** | Type-safe development |
+| **Tailwind CSS** | Utility-first styling |
+| **Supabase** | PostgreSQL database & authentication |
+| **Framer Motion** | Animations and transitions |
+| **Lucide React** | Icon library |
+| **Embla Carousel** | Touch-friendly carousels |
+| **Resend** | Transactional emails |
+
+## 📁 Project Structure
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/shailendra.singh2281707/digicideswebsiteredesign.git
-git branch -M main
-git push -uf origin main
+digicides/
+├── public/                          # Static assets
+│   ├── analytics/                   # Analytics page images
+│   ├── engagement/                  # Engagement page images
+│   ├── images/                      # General images
+│   ├── market-research/             # Market research images
+│   ├── missed-call-solution/        # Missed call solution assets
+│   ├── performance-marketing/       # Performance marketing images
+│   ├── rural-reward/                # Rural reward images
+│   ├── slider/                      # Customer logo slider images
+│   ├── team/                        # Team member photos
+│   ├── Logo.png                     # Main logo
+│   └── favicon.svg                  # Favicon
+│
+├── scripts/                         # Utility scripts
+│   └── setup-supabase.cjs           # Supabase setup script
+│
+├── data/                            # Static data files
+│   └── blogs/
+│       └── blogs.json               # Sample blog data
+│
+├── src/
+│   ├── app/                         # Next.js App Router
+│   │   ├── (landing)/               # Landing page group
+│   │   │   ├── _components/         # Landing-specific components
+│   │   │   │   └── Hero.tsx
+│   │   │   ├── about/
+│   │   │   │   └── page.tsx         # About page
+│   │   │   ├── blog/
+│   │   │   │   ├── [slug]/
+│   │   │   │   │   └── page.tsx     # Individual blog post
+│   │   │   │   └── page.tsx         # Blog listing
+│   │   │   ├── privacy-policy/
+│   │   │   │   └── page.tsx
+│   │   │   ├── under-construction/
+│   │   │   │   └── page.tsx
+│   │   │   ├── layout.tsx           # Landing layout with navbar/footer
+│   │   │   └── page.tsx             # Homepage
+│   │   │
+│   │   ├── api/                     # API Routes
+│   │   │   ├── blogs/
+│   │   │   │   ├── [id]/
+│   │   │   │   │   └── route.ts     # GET/PUT/DELETE single blog
+│   │   │   │   └── route.ts         # GET all / POST new blog
+│   │   │   └── contact-us/
+│   │   │       └── route.ts         # Contact form handler
+│   │   │
+│   │   ├── product/                 # Product pages
+│   │   │   ├── analytics/
+│   │   │   │   └── page.tsx
+│   │   │   ├── discover/
+│   │   │   │   └── page.tsx
+│   │   │   ├── missed-call-solution/
+│   │   │   │   └── page.tsx
+│   │   │   ├── rural-reward/
+│   │   │   │   └── page.tsx
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx
+│   │   │
+│   │   ├── services/                # Services pages
+│   │   │   ├── digixblog/           # Blog management system
+│   │   │   │   ├── edit/
+│   │   │   │   │   └── [id]/
+│   │   │   │   │       └── page.tsx # Edit blog
+│   │   │   │   ├── manage/
+│   │   │   │   │   └── page.tsx     # Blog management dashboard
+│   │   │   │   └── page.tsx         # Blog creator
+│   │   │   ├── engagement/
+│   │   │   │   └── page.tsx
+│   │   │   ├── market-research-for-agri-brands/
+│   │   │   │   └── page.tsx
+│   │   │   ├── performance-marketing-for-agri-brands/
+│   │   │   │   └── page.tsx
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx
+│   │   │
+│   │   ├── contact-landing/
+│   │   │   └── page.tsx
+│   │   ├── layout.tsx               # Root layout
+│   │   ├── not-found.tsx            # 404 page
+│   │   └── sitemap.xml              # Auto-generated sitemap
+│   │
+│   ├── components/                  # Reusable components
+│   │   ├── analytics/
+│   │   │   └── analytics-carousel.tsx
+│   │   ├── carousel/
+│   │   │   ├── css/
+│   │   │   │   └── embla.css
+│   │   │   ├── jss/
+│   │   │   │   ├── EmblaCarousel.tsx
+│   │   │   │   ├── EmblaCarouselArrowButtons.tsx
+│   │   │   │   └── EmblaCarouselDotButton.tsx
+│   │   │   ├── card.tsx
+│   │   │   └── page.tsx
+│   │   ├── landing/
+│   │   │   ├── contact-us.tsx
+│   │   │   ├── footer.tsx
+│   │   │   ├── how-do-we-do.tsx
+│   │   │   ├── navbar.tsx
+│   │   │   ├── our-customers.tsx
+│   │   │   ├── what-do-we-do.tsx
+│   │   │   ├── what-our-customer-tell.tsx
+│   │   │   └── why-choose-us.tsx
+│   │   ├── layouts/
+│   │   │   ├── theme-provider.tsx
+│   │   │   └── theme-toggle.tsx
+│   │   ├── market-research/
+│   │   │   ├── hero.tsx
+│   │   │   ├── market-card.tsx
+│   │   │   └── why-choose.tsx
+│   │   ├── missed-call-solution/
+│   │   │   ├── missed-call-solution-carousel.tsx
+│   │   │   └── speed-video.tsx
+│   │   ├── rural-reward/
+│   │   │   └── rural-reward-carousel.tsx
+│   │   ├── ui/                      # UI primitives (shadcn/ui)
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── carousel.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── label.tsx
+│   │   │   ├── navigation-menu.tsx
+│   │   │   ├── textarea.tsx
+│   │   │   └── ...
+│   │   ├── meet-our-team.tsx
+│   │   └── shell.tsx
+│   │
+│   ├── lib/                         # Utility functions
+│   │   ├── blog-storage.ts          # Blog CRUD operations
+│   │   └── utils.ts                 # General utilities
+│   │
+│   ├── styles/
+│   │   └── globals.css              # Global styles & Tailwind
+│   │
+│   └── types/                       # TypeScript types
+│       ├── blog.ts                  # Blog interfaces
+│       └── global.d.ts              # Global type declarations
+│
+├── .env.example                     # Environment variables template
+├── .env.local                       # Local environment (gitignored)
+├── .eslintrc.cjs                    # ESLint configuration
+├── .gitignore                       # Git ignore rules
+├── components.json                  # shadcn/ui configuration
+├── next.config.js                   # Next.js configuration
+├── package.json                     # Dependencies & scripts
+├── postcss.config.js                # PostCSS configuration
+├── prettier.config.js               # Prettier configuration
+├── supabase-setup.sql               # SQL for Supabase table setup
+├── tailwind.config.ts               # Tailwind configuration
+└── tsconfig.json                    # TypeScript configuration
 ```
 
-## Integrate with your tools
+## 🛠️ Getting Started
 
-- [ ] [Set up project integrations](https://gitlab.com/shailendra.singh2281707/digicideswebsiteredesign/-/settings/integrations)
+### Prerequisites
 
-## Collaborate with your team
+- Node.js 18.x or later
+- npm or yarn
+- Supabase account (for database)
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Installation
 
-## Test and Deploy
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd digicides
+   ```
 
-Use the built-in continuous integration in GitLab.
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env.local
+   ```
+   
+   Edit `.env.local` with your credentials:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   RESEND_API_KEY=your-resend-api-key
+   ```
 
-***
+4. **Set up Supabase database**
+   
+   Run this SQL in your Supabase SQL Editor:
+   ```sql
+   CREATE TABLE IF NOT EXISTS blogs (
+     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+     title TEXT NOT NULL,
+     subtitle TEXT DEFAULT '',
+     slug TEXT NOT NULL UNIQUE,
+     content TEXT DEFAULT '',
+     author TEXT DEFAULT '',
+     category TEXT DEFAULT '',
+     tags TEXT[] DEFAULT '{}',
+     thumbnail TEXT,
+     meta_title TEXT DEFAULT '',
+     meta_description TEXT DEFAULT '',
+     status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+     word_count INTEGER DEFAULT 0,
+     reading_time INTEGER DEFAULT 1,
+     created_at TIMESTAMPTZ DEFAULT NOW(),
+     updated_at TIMESTAMPTZ DEFAULT NOW()
+   );
 
-# Editing this README
+   ALTER TABLE blogs ENABLE ROW LEVEL SECURITY;
+   CREATE POLICY "Allow public read" ON blogs FOR SELECT USING (true);
+   CREATE POLICY "Allow all for service role" ON blogs FOR ALL USING (true);
+   ```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+5. **Start the development server**
+   ```bash
+   npm run dev
+   ```
 
-## Suggestions for a good README
+   Open [http://localhost:3000](http://localhost:3000) to view the app.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## 📜 Available Scripts
 
-## Name
-Choose a self-explaining name for your project.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server with Turbopack |
+| `npm run build` | Build for production |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run lint:fix` | Fix ESLint errors automatically |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm run format:write` | Format code with Prettier |
+| `npm run format:check` | Check code formatting |
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## 📝 Blog Management System (DigiXBlog)
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+The platform includes a full-featured blog management system:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### Features
+- ✏️ **Rich Text Editor** - Bold, italic, headings, lists, quotes, code blocks
+- 🎨 **Text Formatting** - Custom fonts, sizes, colors, highlights
+- 😀 **Emoji Support** - Built-in emoji picker with categories
+- 🎥 **Media Embedding** - Images and YouTube/video embedding
+- 📊 **Auto Statistics** - Word count and reading time calculation
+- 🔍 **SEO Settings** - Meta titles, descriptions, and custom slugs
+- 📤 **Export Options** - PDF and JSON export
+- 👁️ **Preview Mode** - Real-time content preview
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### Blog Routes
+| Route | Description |
+|-------|-------------|
+| `/services/digixblog` | Create new blog post |
+| `/services/digixblog/manage` | Manage all blog posts |
+| `/services/digixblog/edit/[id]` | Edit existing blog post |
+| `/blog` | Public blog listing |
+| `/blog/[slug]` | Individual blog post |
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## 🌐 Deployment
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### Vercel (Recommended)
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+1. Push your code to GitHub
+2. Import the project in [Vercel](https://vercel.com)
+3. Add environment variables in Vercel dashboard:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `RESEND_API_KEY`
+4. Deploy!
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### Other Platforms
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+The app can be deployed to any platform supporting Next.js:
+- Netlify
+- Railway
+- AWS Amplify
+- Docker
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+## 🎨 Theming
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+The app uses a custom color scheme:
 
-## License
-For open source projects, say how it is licensed.
+| Color | Hex | Usage |
+|-------|-----|-------|
+| Primary | `#E07B00` | Brand orange - CTAs, accents |
+| Background | `#FEF4E8` | Warm cream background |
+| Foreground | `#1a1a1a` | Text color |
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+Theme configuration is in `tailwind.config.ts`.
+
+## 📱 Pages Overview
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Home | `/` | Landing page with hero, services, testimonials |
+| About | `/about` | Company information and team |
+| Products | `/product/*` | Product pages (Analytics, Rural Reward, etc.) |
+| Services | `/services/*` | Service pages (Engagement, Marketing, etc.) |
+| Blog | `/blog` | Public blog listing |
+| Contact | `/#contact-us` | Contact form section |
+| Privacy | `/privacy-policy` | Privacy policy |
+
+## 🔒 Security
+
+- Environment variables are gitignored
+- Supabase Row Level Security (RLS) enabled
+- Service role key only used server-side
+- Input validation with Zod
+
+## 📄 License
+
+This project is private and proprietary to Digicides.
+
+## 👥 Team
+
+Built with ❤️ by the Digicides team.
+
+---
+
+<p align="center">
+  <strong>Digicides</strong> - Connecting Brands with Rural India
+</p>
