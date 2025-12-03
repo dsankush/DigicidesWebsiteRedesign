@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { BLOG_CATEGORIES } from '@/types/blog';
 import type { Blog } from '@/types/blog';
 import {
-  getLocalBlog,
-  updateLocalBlog,
+  fetchBlog,
+  updateBlog,
   calculateReadingStats,
 } from '@/lib/blog-storage';
 import {
@@ -103,34 +103,26 @@ export default function EditBlog({ params }: PageProps) {
   
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // Fetch blog data
+  // Fetch blog data from Supabase via API
   useEffect(() => {
-    const fetchBlog = async () => {
+    const loadBlog = async () => {
       try {
-        // Try API first
-        const response = await fetch(`/api/blogs/${id}`);
-        const data = await response.json() as { success?: boolean; blog?: Blog; error?: string };
+        const blog = await fetchBlog(id);
         
-        if (data.success && data.blog) {
-          loadBlogData(data.blog);
-        } else {
-          throw new Error('API failed');
-        }
-      } catch {
-        // Fallback to localStorage
-        console.log('API failed, trying localStorage');
-        const localBlog = getLocalBlog(id);
-        if (localBlog) {
-          loadBlogData(localBlog);
+        if (blog) {
+          loadBlogData(blog);
         } else {
           setSaveMessage({ type: 'error', text: 'Blog not found' });
         }
+      } catch (error) {
+        console.error('Error fetching blog:', error);
+        setSaveMessage({ type: 'error', text: 'Failed to load blog' });
       } finally {
         setIsLoading(false);
       }
     };
     
-    void fetchBlog();
+    void loadBlog();
   }, [id]);
 
   const loadBlogData = (blog: Blog) => {
@@ -373,7 +365,7 @@ export default function EditBlog({ params }: PageProps) {
     e.target.value = '';
   };
 
-  // Save Blog
+  // Save Blog to Supabase via API
   const saveBlog = useCallback(async (newStatus?: 'draft' | 'published') => {
     if (!title.trim()) {
       setSaveMessage({ type: 'error', text: 'Please enter a title' });
@@ -399,37 +391,8 @@ export default function EditBlog({ params }: PageProps) {
     };
 
     try {
-      // Try API first
-      const response = await fetch(`/api/blogs/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(blogData),
-      });
+      const updated = await updateBlog(id, blogData);
 
-      const data = await response.json() as { success?: boolean; error?: string };
-
-      if (response.ok && data.success) {
-        // Also update localStorage
-        updateLocalBlog(id, { ...blogData, tags: blogData.tags });
-        if (newStatus) setStatus(newStatus);
-        setSaveMessage({ type: 'success', text: 'Blog updated successfully!' });
-        setTimeout(() => {
-          router.push('/services/digixblog/manage');
-        }, 1500);
-      } else {
-        throw new Error(data.error || 'API failed');
-      }
-    } catch (error) {
-      console.log('API update failed, trying localStorage:', error);
-      // Fallback to localStorage
-      const { wordCount: wc, readingTime: rt } = calculateReadingStats(content);
-      const updated = updateLocalBlog(id, {
-        ...blogData,
-        tags: blogData.tags,
-        wordCount: wc,
-        readingTime: rt,
-      });
-      
       if (updated) {
         if (newStatus) setStatus(newStatus);
         setSaveMessage({ type: 'success', text: 'Blog updated successfully!' });
@@ -437,8 +400,11 @@ export default function EditBlog({ params }: PageProps) {
           router.push('/services/digixblog/manage');
         }, 1500);
       } else {
-        setSaveMessage({ type: 'error', text: 'Failed to update blog' });
+        setSaveMessage({ type: 'error', text: 'Failed to update blog. Please try again.' });
       }
+    } catch (error) {
+      console.error('Error updating blog:', error);
+      setSaveMessage({ type: 'error', text: 'Failed to update blog. Please try again.' });
     } finally {
       setIsSaving(false);
     }

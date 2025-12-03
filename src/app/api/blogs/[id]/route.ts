@@ -1,32 +1,63 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 import type { Blog } from '@/types/blog';
 
 // Force dynamic rendering for this route
 export const dynamic = 'force-dynamic';
 
-const BLOGS_FILE_PATH = path.join(process.cwd(), 'data', 'blogs', 'blogs.json');
-
-interface BlogsData {
-  blogs: Blog[];
+// Database row type
+interface DbBlog {
+  id: string;
+  title: string;
+  subtitle: string;
+  slug: string;
+  content: string;
+  author: string;
+  category: string;
+  tags: string[];
+  thumbnail: string | null;
+  meta_title: string;
+  meta_description: string;
+  status: 'draft' | 'published';
+  word_count: number;
+  reading_time: number;
+  created_at: string;
+  updated_at: string;
 }
 
-function getBlogsData(): BlogsData {
-  try {
-    const data = fs.readFileSync(BLOGS_FILE_PATH, 'utf-8');
-    return JSON.parse(data) as BlogsData;
-  } catch {
-    return { blogs: [] };
-  }
+// Initialize Supabase client with service role for server-side operations
+function getSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
-function saveBlogsData(data: BlogsData): void {
-  const dir = path.dirname(BLOGS_FILE_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(BLOGS_FILE_PATH, JSON.stringify(data, null, 2));
+// Map database row to Blog type
+function mapDbToBlog(row: DbBlog): Blog {
+  return {
+    id: row.id,
+    title: row.title,
+    subtitle: row.subtitle,
+    slug: row.slug,
+    content: row.content,
+    author: row.author,
+    category: row.category,
+    tags: row.tags || [],
+    thumbnail: row.thumbnail,
+    metaTitle: row.meta_title,
+    metaDescription: row.meta_description,
+    status: row.status,
+    wordCount: row.word_count,
+    readingTime: row.reading_time,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 interface RouteParams {
@@ -37,14 +68,37 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const data = getBlogsData();
-    const blog = data.blogs.find(b => b.id === id || b.slug === id);
+    const supabase = getSupabase();
     
-    if (!blog) {
-      return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
+    // Try to find by ID first
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    let { data: blog, error } = await supabase
+      .from('blogs')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    // If not found by ID, try by slug
+    if (error ?? !blog) {
+      const result = await supabase
+        .from('blogs')
+        .select('*')
+        .eq('slug', id)
+        .single();
+      
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      blog = result.data;
+      error = result.error;
     }
     
-    return NextResponse.json({ success: true, blog });
+    if (error ?? !blog) {
+      return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
+    }
+
+    // Map response
+    const mappedBlog = mapDbToBlog(blog as DbBlog);
+    
+    return NextResponse.json({ success: true, blog: mappedBlog });
   } catch (error) {
     console.error('Error fetching blog:', error);
     return NextResponse.json({ error: 'Failed to fetch blog' }, { status: 500 });
@@ -56,40 +110,68 @@ export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
     const body = await req.json() as Partial<Blog>;
-    const data = getBlogsData();
+    const supabase = getSupabase();
     
-    const blogIndex = data.blogs.findIndex(b => b.id === id);
-    if (blogIndex === -1) {
+    // Check if blog exists
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { data: existingBlog, error: findError } = await supabase
+      .from('blogs')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (findError ?? !existingBlog) {
       return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
     }
     
-    const existingBlog = data.blogs[blogIndex];
-    if (!existingBlog) {
-      return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
-    }
+    const existing = existingBlog as DbBlog;
     
     // Calculate word count and reading time if content changed
-    let wordCount = existingBlog.wordCount;
-    let readingTime = existingBlog.readingTime;
+    let wordCount = existing.word_count;
+    let readingTime = existing.reading_time;
     
-    if (body.content) {
+    if (body.content !== undefined) {
       const plainText = body.content.replace(/<[^>]*>/g, '');
       wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
-      readingTime = Math.ceil(wordCount / 200);
+      readingTime = Math.max(1, Math.ceil(wordCount / 200));
     }
     
-    const updatedBlog: Blog = {
-      ...existingBlog,
-      ...body,
-      wordCount,
-      readingTime,
-      updatedAt: new Date().toISOString(),
+    // Build update object
+    const updates: Partial<DbBlog> = {
+      updated_at: new Date().toISOString(),
+      word_count: wordCount,
+      reading_time: readingTime,
     };
+
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.subtitle !== undefined) updates.subtitle = body.subtitle;
+    if (body.slug !== undefined) updates.slug = body.slug;
+    if (body.content !== undefined) updates.content = body.content;
+    if (body.author !== undefined) updates.author = body.author;
+    if (body.category !== undefined) updates.category = body.category;
+    if (body.tags !== undefined) updates.tags = body.tags;
+    if (body.thumbnail !== undefined) updates.thumbnail = body.thumbnail;
+    if (body.metaTitle !== undefined) updates.meta_title = body.metaTitle;
+    if (body.metaDescription !== undefined) updates.meta_description = body.metaDescription;
+    if (body.status !== undefined) updates.status = body.status;
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { data: updatedBlog, error: updateError } = await supabase
+      .from('blogs')
+      .update(updates as Record<string, unknown>)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError ?? !updatedBlog) {
+      console.error('Update error:', updateError);
+      return NextResponse.json({ error: 'Failed to update blog' }, { status: 500 });
+    }
+
+    // Map response
+    const mappedBlog = mapDbToBlog(updatedBlog as DbBlog);
     
-    data.blogs[blogIndex] = updatedBlog;
-    saveBlogsData(data);
-    
-    return NextResponse.json({ success: true, blog: updatedBlog });
+    return NextResponse.json({ success: true, blog: mappedBlog });
   } catch (error) {
     console.error('Error updating blog:', error);
     return NextResponse.json({ error: 'Failed to update blog' }, { status: 500 });
@@ -100,15 +182,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const data = getBlogsData();
+    const supabase = getSupabase();
     
-    const blogIndex = data.blogs.findIndex(b => b.id === id);
-    if (blogIndex === -1) {
-      return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
+    const { error } = await supabase
+      .from('blogs')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Delete error:', error);
+      return NextResponse.json({ error: 'Failed to delete blog' }, { status: 500 });
     }
-    
-    data.blogs.splice(blogIndex, 1);
-    saveBlogsData(data);
     
     return NextResponse.json({ success: true, message: 'Blog deleted successfully' });
   } catch (error) {

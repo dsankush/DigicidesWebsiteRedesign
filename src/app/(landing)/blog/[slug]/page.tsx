@@ -7,8 +7,6 @@ import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import { Clock, Calendar, Tag, ArrowLeft, Share2, ChevronRight, FileText, Loader2 } from 'lucide-react';
 
-const STORAGE_KEY = 'digicides_blogs';
-
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
@@ -24,57 +22,36 @@ export default function BlogPostPage({ params }: PageProps) {
     const loadBlog = async () => {
       setIsLoading(true);
       
-      // Get all blogs from localStorage
-      let allBlogs: Blog[] = [];
-      
       try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as { blogs: Blog[] };
-          allBlogs = parsed.blogs || [];
-        }
-      } catch (e) {
-        console.error('Error reading localStorage:', e);
-      }
-
-      // Try API to merge blogs
-      try {
-        const response = await fetch('/api/blogs');
+        // Fetch all blogs from Supabase via API
+        const response = await fetch('/api/blogs', { cache: 'no-store' });
         const data = await response.json() as { success?: boolean; blogs?: Blog[] };
         
         if (data.success && data.blogs) {
-          const localIds = new Set(allBlogs.map(b => b.id));
-          const apiOnlyBlogs = data.blogs.filter(b => !localIds.has(b.id));
+          // Find the blog by slug (only published)
+          const foundBlog = data.blogs.find(b => b.slug === slug && b.status === 'published');
           
-          if (allBlogs.length === 0) {
-            allBlogs = data.blogs;
+          if (foundBlog) {
+            setBlog(foundBlog);
+            
+            // Find related blogs
+            const related = data.blogs
+              .filter(b => 
+                b.id !== foundBlog.id && 
+                b.status === 'published' &&
+                (b.category === foundBlog.category || 
+                 b.tags.some(tag => foundBlog.tags.includes(tag)))
+              )
+              .slice(0, 3);
+            setRelatedBlogs(related);
           } else {
-            allBlogs = [...allBlogs, ...apiOnlyBlogs];
+            setNotFound(true);
           }
-          
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ blogs: allBlogs }));
+        } else {
+          setNotFound(true);
         }
-      } catch (e) {
-        console.log('API fetch failed:', e);
-      }
-
-      // Find the blog by slug (only published)
-      const foundBlog = allBlogs.find(b => b.slug === slug && b.status === 'published');
-      
-      if (foundBlog) {
-        setBlog(foundBlog);
-        
-        // Find related blogs
-        const related = allBlogs
-          .filter(b => 
-            b.id !== foundBlog.id && 
-            b.status === 'published' &&
-            (b.category === foundBlog.category || 
-             b.tags.some(tag => foundBlog.tags.includes(tag)))
-          )
-          .slice(0, 3);
-        setRelatedBlogs(related);
-      } else {
+      } catch (error) {
+        console.error('Error loading blog:', error);
         setNotFound(true);
       }
       

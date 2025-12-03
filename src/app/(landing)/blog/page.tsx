@@ -7,61 +7,32 @@ import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import { Clock, User, Tag, Calendar, ArrowRight, FileText, Loader2 } from 'lucide-react';
 
-const STORAGE_KEY = 'digicides_blogs';
-
 export default function BlogListingPage() {
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  // Load blogs from localStorage and API
+  // Load blogs from Supabase via API
   useEffect(() => {
     const loadBlogs = async () => {
       setIsLoading(true);
       
-      // First, get from localStorage
-      let localBlogs: Blog[] = [];
       try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored) as { blogs: Blog[] };
-          localBlogs = parsed.blogs || [];
-        }
-      } catch (e) {
-        console.error('Error reading localStorage:', e);
-      }
-
-      // Try to fetch from API to get any server-side blogs
-      try {
-        const response = await fetch('/api/blogs');
+        const response = await fetch('/api/blogs', { cache: 'no-store' });
         const data = await response.json() as { success?: boolean; blogs?: Blog[] };
         
         if (data.success && data.blogs) {
-          // Merge: keep localStorage blogs but add any API-only blogs
-          const localIds = new Set(localBlogs.map(b => b.id));
-          const apiOnlyBlogs = data.blogs.filter(b => !localIds.has(b.id));
+          // Filter to only published blogs and sort by date
+          const publishedBlogs = data.blogs
+            .filter(blog => blog.status === 'published')
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
           
-          // If localStorage is empty, use API blogs
-          if (localBlogs.length === 0) {
-            localBlogs = data.blogs;
-          } else {
-            // Add API-only blogs to local
-            localBlogs = [...localBlogs, ...apiOnlyBlogs];
-          }
-          
-          // Save merged result back to localStorage
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ blogs: localBlogs }));
+          setBlogs(publishedBlogs);
         }
-      } catch (e) {
-        console.log('API fetch failed, using localStorage only:', e);
+      } catch (error) {
+        console.error('Error loading blogs:', error);
       }
 
-      // Filter to only published blogs and sort by date
-      const publishedBlogs = localBlogs
-        .filter(blog => blog.status === 'published')
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-      setBlogs(publishedBlogs);
       setIsLoading(false);
     };
 

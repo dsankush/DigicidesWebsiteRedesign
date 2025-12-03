@@ -6,13 +6,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { BLOG_CATEGORIES } from '@/types/blog';
-import type { Blog } from '@/types/blog';
 import {
-  addLocalBlog,
-  generateBlogId,
+  createBlog,
   generateSlug,
   calculateReadingStats,
-  initializeFromApi,
 } from '@/lib/blog-storage';
 import {
   Bold, Italic, List, Link as LinkIcon, Underline, Strikethrough,
@@ -109,10 +106,6 @@ export default function DigiXBlogCreator() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Initialize from API
-  useEffect(() => {
-    void initializeFromApi();
-  }, []);
 
   // Auto-generate slug
   useEffect(() => {
@@ -306,11 +299,9 @@ export default function DigiXBlogCreator() {
     setIsSaving(true);
     setSaveMessage(null);
 
-    const { wordCount: wc, readingTime: rt } = calculateReadingStats(content);
     const finalSlug = slug || generateSlug(title);
     
-    const newBlog: Blog = {
-      id: generateBlogId(),
+    const blogData = {
       title,
       subtitle,
       slug: finalSlug,
@@ -322,18 +313,22 @@ export default function DigiXBlogCreator() {
       metaTitle: metaTitle || title,
       metaDescription,
       status,
-      wordCount: wc,
-      readingTime: rt,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     };
 
-    addLocalBlog(newBlog);
-    setSaveMessage({ type: 'success', text: `Blog ${status === 'draft' ? 'saved as draft' : 'published'} successfully!` });
-    
-    setTimeout(() => {
-      router.push('/services/digixblog/manage');
-    }, 1500);
+    try {
+      const created = await createBlog(blogData);
+      
+      if (created) {
+        setSaveMessage({ type: 'success', text: `Blog ${status === 'draft' ? 'saved as draft' : 'published'} successfully!` });
+        setTimeout(() => {
+          router.push('/services/digixblog/manage');
+        }, 1500);
+      } else {
+        setSaveMessage({ type: 'error', text: 'Failed to save blog. Please try again.' });
+      }
+    } catch {
+      setSaveMessage({ type: 'error', text: 'Failed to save blog. Please try again.' });
+    }
 
     setIsSaving(false);
   };

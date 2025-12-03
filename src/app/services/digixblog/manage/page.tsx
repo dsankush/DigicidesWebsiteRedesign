@@ -7,10 +7,9 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
 import {
-  getLocalBlogs,
-  deleteLocalBlog,
-  updateLocalBlog,
-  initializeFromApi,
+  fetchBlogs,
+  deleteBlog,
+  updateBlog,
 } from '@/lib/blog-storage';
 import {
   Plus, Search, Edit3, Trash2, Eye, Calendar,
@@ -33,12 +32,11 @@ export default function BlogManagement() {
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Fetch blogs from localStorage (initialized from API once)
-  const fetchBlogs = useCallback(async () => {
+  // Fetch blogs from Supabase via API
+  const loadBlogs = useCallback(async () => {
     setIsLoading(true);
     
-    // Initialize from API if first time, otherwise just get local
-    const allBlogs = await initializeFromApi();
+    const allBlogs = await fetchBlogs();
     setBlogs(allBlogs);
     setFilteredBlogs(allBlogs);
     
@@ -46,8 +44,8 @@ export default function BlogManagement() {
   }, []);
 
   useEffect(() => {
-    void fetchBlogs();
-  }, [fetchBlogs]);
+    void loadBlogs();
+  }, [loadBlogs]);
 
   // Filter blogs
   useEffect(() => {
@@ -80,20 +78,22 @@ export default function BlogManagement() {
   // Get unique categories
   const categories = [...new Set(blogs.map(blog => blog.category).filter(Boolean))];
 
-  // Refresh from localStorage only (not API)
-  const refreshBlogs = () => {
-    const localBlogs = getLocalBlogs();
-    setBlogs(localBlogs);
-    setFilteredBlogs(localBlogs);
+  // Refresh from Supabase
+  const refreshBlogs = async () => {
+    setIsLoading(true);
+    const allBlogs = await fetchBlogs();
+    setBlogs(allBlogs);
+    setFilteredBlogs(allBlogs);
     setMessage({ type: 'success', text: 'Blogs refreshed' });
+    setIsLoading(false);
   };
 
   // Delete blog
   const handleDelete = async (id: string) => {
     setDeletingId(id);
     
-    // Delete from localStorage
-    const deleted = deleteLocalBlog(id);
+    // Delete from Supabase via API
+    const deleted = await deleteBlog(id);
     
     if (deleted) {
       setBlogs(prev => prev.filter(b => b.id !== id));
@@ -112,8 +112,8 @@ export default function BlogManagement() {
     setTogglingId(blog.id);
     const newStatus = blog.status === 'published' ? 'draft' : 'published';
     
-    // Update in localStorage
-    const updated = updateLocalBlog(blog.id, { status: newStatus });
+    // Update in Supabase via API
+    const updated = await updateBlog(blog.id, { status: newStatus });
     
     if (updated) {
       setBlogs(prev => prev.map(b => b.id === blog.id ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b));
@@ -251,7 +251,7 @@ export default function BlogManagement() {
 
               <Button
                 variant="outline"
-                onClick={refreshBlogs}
+                onClick={() => void refreshBlogs()}
                 className="gap-2"
                 size="sm"
               >
