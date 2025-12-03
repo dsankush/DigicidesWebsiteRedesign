@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { Blog } from '@/types/blog';
 
-// Force dynamic rendering for this route
 export const dynamic = 'force-dynamic';
 
 // Database row type
@@ -21,24 +20,19 @@ interface DbBlog {
   status: 'draft' | 'published';
   word_count: number;
   reading_time: number;
+  likes_count: number;
   created_at: string;
   updated_at: string;
 }
 
-// Initialize Supabase client with service role for server-side operations
 function getSupabase() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
 }
 
-// Map database row to Blog type
 function mapDbToBlog(row: DbBlog): Blog {
   return {
     id: row.id,
@@ -55,29 +49,36 @@ function mapDbToBlog(row: DbBlog): Blog {
     status: row.status,
     wordCount: row.word_count,
     readingTime: row.reading_time,
+    likesCount: row.likes_count || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 // GET all blogs
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const supabase = getSupabase();
+    const { searchParams } = new URL(req.url);
+    const status = searchParams.get('status'); // 'published', 'draft', or null for all
     
-    const { data: blogs, error } = await supabase
+    let query = supabase
       .from('blogs')
       .select('*')
       .order('created_at', { ascending: false });
+    
+    if (status) {
+      query = query.eq('status', status);
+    }
+    
+    const { data: blogs, error } = await query;
 
     if (error) {
       console.error('Supabase error:', error);
       return NextResponse.json({ error: 'Failed to fetch blogs' }, { status: 500 });
     }
 
-    // Map database fields to frontend format
     const mappedBlogs = (blogs as DbBlog[] || []).map(mapDbToBlog);
-
     return NextResponse.json({ success: true, blogs: mappedBlogs });
   } catch (error) {
     console.error('Error fetching blogs:', error);
@@ -91,7 +92,6 @@ export async function POST(req: Request) {
     const body = await req.json() as Partial<Blog>;
     const supabase = getSupabase();
     
-    // Generate slug from title if not provided
     const title = body.title ?? '';
     const slug = body.slug ?? title
       .toLowerCase()
@@ -109,13 +109,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'A blog with this slug already exists' }, { status: 400 });
     }
     
-    // Calculate word count and reading time
     const content = body.content ?? '';
     const plainText = content.replace(/<[^>]*>/g, '');
     const wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
     const readingTime = Math.max(1, Math.ceil(wordCount / 200));
     
-    // Insert into Supabase
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { data: newBlog, error } = await supabase
       .from('blogs')
@@ -133,6 +131,7 @@ export async function POST(req: Request) {
         status: body.status ?? 'draft',
         word_count: wordCount,
         reading_time: readingTime,
+        likes_count: 0,
       }])
       .select()
       .single();
@@ -142,9 +141,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Failed to create blog' }, { status: 500 });
     }
 
-    // Map response
     const mappedBlog = mapDbToBlog(newBlog as DbBlog);
-
     return NextResponse.json({ success: true, blog: mappedBlog });
   } catch (error) {
     console.error('Error creating blog:', error);

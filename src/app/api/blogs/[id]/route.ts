@@ -2,10 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { Blog } from '@/types/blog';
 
-// Force dynamic rendering for this route
 export const dynamic = 'force-dynamic';
 
-// Database row type
 interface DbBlog {
   id: string;
   title: string;
@@ -21,24 +19,19 @@ interface DbBlog {
   status: 'draft' | 'published';
   word_count: number;
   reading_time: number;
+  likes_count: number;
   created_at: string;
   updated_at: string;
 }
 
-// Initialize Supabase client with service role for server-side operations
 function getSupabase() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
 }
 
-// Map database row to Blog type
 function mapDbToBlog(row: DbBlog): Blog {
   return {
     id: row.id,
@@ -55,6 +48,7 @@ function mapDbToBlog(row: DbBlog): Blog {
     status: row.status,
     wordCount: row.word_count,
     readingTime: row.reading_time,
+    likesCount: row.likes_count || 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -64,7 +58,7 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// GET single blog
+// GET single blog by ID or slug
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -95,9 +89,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Blog not found' }, { status: 404 });
     }
 
-    // Map response
     const mappedBlog = mapDbToBlog(blog as DbBlog);
-    
     return NextResponse.json({ success: true, blog: mappedBlog });
   } catch (error) {
     console.error('Error fetching blog:', error);
@@ -137,7 +129,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
     
     // Build update object
-    const updates: Partial<DbBlog> = {
+    const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
       word_count: wordCount,
       reading_time: readingTime,
@@ -158,7 +150,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const { data: updatedBlog, error: updateError } = await supabase
       .from('blogs')
-      .update(updates as Record<string, unknown>)
+      .update(updates)
       .eq('id', id)
       .select()
       .single();
@@ -168,9 +160,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Failed to update blog' }, { status: 500 });
     }
 
-    // Map response
     const mappedBlog = mapDbToBlog(updatedBlog as DbBlog);
-    
     return NextResponse.json({ success: true, blog: mappedBlog });
   } catch (error) {
     console.error('Error updating blog:', error);

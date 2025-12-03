@@ -6,23 +6,27 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import type { Blog } from '@/types/blog';
-import {
-  fetchBlogs,
-  deleteBlog,
-  updateBlog,
-} from '@/lib/blog-storage';
+import { fetchBlogs, deleteBlog, updateBlog } from '@/lib/blog-storage';
 import {
   Plus, Search, Edit3, Trash2, Eye, Calendar,
-  Clock, FileText, Tag, User, ChevronLeft, Loader2,
+  Clock, FileText, User, ChevronLeft, Loader2,
   AlertCircle, Check, Filter, Download,
-  RefreshCw, ExternalLink, EyeOff
+  RefreshCw, ExternalLink, EyeOff, LogOut, MessageSquare, Heart
 } from 'lucide-react';
+
+interface AdminData {
+  id: string;
+  email: string;
+  name: string;
+}
 
 export default function BlogManagement() {
   const router = useRouter();
   const [blogs, setBlogs] = useState<Blog[]>([]);
   const [filteredBlogs, setFilteredBlogs] = useState<Blog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [admin, setAdmin] = useState<AdminData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -32,26 +36,46 @@ export default function BlogManagement() {
   const [selectedBlog, setSelectedBlog] = useState<Blog | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Fetch blogs from Supabase via API
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/admin/session');
+        const data = await response.json() as { authenticated?: boolean; admin?: AdminData };
+        
+        if (data.authenticated && data.admin) {
+          setIsAuthenticated(true);
+          setAdmin(data.admin);
+        } else {
+          router.push('/services/digixblog/login');
+        }
+      } catch {
+        router.push('/services/digixblog/login');
+      }
+    };
+    
+    void checkAuth();
+  }, [router]);
+
+  // Fetch blogs
   const loadBlogs = useCallback(async () => {
     setIsLoading(true);
-    
     const allBlogs = await fetchBlogs();
     setBlogs(allBlogs);
     setFilteredBlogs(allBlogs);
-    
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    void loadBlogs();
-  }, [loadBlogs]);
+    if (isAuthenticated) {
+      void loadBlogs();
+    }
+  }, [isAuthenticated, loadBlogs]);
 
   // Filter blogs
   useEffect(() => {
     let result = blogs;
 
-    // Search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(blog =>
@@ -62,12 +86,10 @@ export default function BlogManagement() {
       );
     }
 
-    // Status filter
     if (statusFilter !== 'all') {
       result = result.filter(blog => blog.status === statusFilter);
     }
 
-    // Category filter
     if (categoryFilter !== 'all') {
       result = result.filter(blog => blog.category === categoryFilter);
     }
@@ -75,10 +97,15 @@ export default function BlogManagement() {
     setFilteredBlogs(result);
   }, [blogs, searchQuery, statusFilter, categoryFilter]);
 
-  // Get unique categories
   const categories = [...new Set(blogs.map(blog => blog.category).filter(Boolean))];
 
-  // Refresh from Supabase
+  // Logout
+  const handleLogout = async () => {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    router.push('/services/digixblog/login');
+  };
+
+  // Refresh blogs
   const refreshBlogs = async () => {
     setIsLoading(true);
     const allBlogs = await fetchBlogs();
@@ -91,8 +118,6 @@ export default function BlogManagement() {
   // Delete blog
   const handleDelete = async (id: string) => {
     setDeletingId(id);
-    
-    // Delete from Supabase via API
     const deleted = await deleteBlog(id);
     
     if (deleted) {
@@ -111,8 +136,6 @@ export default function BlogManagement() {
   const toggleStatus = async (blog: Blog) => {
     setTogglingId(blog.id);
     const newStatus = blog.status === 'published' ? 'draft' : 'published';
-    
-    // Update in Supabase via API
     const updated = await updateBlog(blog.id, { status: newStatus });
     
     if (updated) {
@@ -125,26 +148,7 @@ export default function BlogManagement() {
     setTogglingId(null);
   };
 
-  // Navigate to edit page
-  const handleEdit = (blogId: string) => {
-    router.push(`/services/digixblog/edit/${blogId}`);
-  };
-
-  // Export single blog
-  const exportBlog = (blog: Blog) => {
-    const data = JSON.stringify(blog, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${blog.slug}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  // Export all blogs
+  // Export
   const exportAllBlogs = () => {
     const data = JSON.stringify({ blogs }, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -158,68 +162,21 @@ export default function BlogManagement() {
     URL.revokeObjectURL(url);
   };
 
-  // Export blog as PDF
-  const exportBlogAsPDF = (blog: Blog) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to export PDF');
-      return;
-    }
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${blog.title}</title>
-          <style>
-            @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-            body { font-family: Georgia, 'Times New Roman', serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.8; color: #333; }
-            h1 { font-size: 32px; margin-bottom: 8px; color: #111; }
-            h2 { font-size: 24px; margin-top: 32px; margin-bottom: 16px; color: #222; }
-            h3 { font-size: 20px; margin-top: 24px; margin-bottom: 12px; color: #333; }
-            .subtitle { font-size: 18px; color: #666; margin-bottom: 24px; }
-            .meta { display: flex; gap: 16px; color: #666; font-size: 14px; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #eee; }
-            .content { margin-top: 24px; }
-            .content p { margin-bottom: 16px; }
-            .content ul, .content ol { margin-left: 24px; margin-bottom: 16px; }
-            .content li { margin-bottom: 8px; }
-            .content blockquote { border-left: 4px solid #E07B00; padding-left: 16px; margin: 24px 0; font-style: italic; color: #555; }
-            .content img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; }
-            .content a { color: #E07B00; }
-            .tags { margin-top: 32px; padding-top: 16px; border-top: 1px solid #eee; }
-            .tag { display: inline-block; background: #FEF4E8; color: #E07B00; padding: 4px 12px; border-radius: 16px; font-size: 12px; margin-right: 8px; }
-            .cover-image { width: 100%; max-height: 400px; object-fit: cover; border-radius: 12px; margin-bottom: 24px; }
-            @page { margin: 2cm; }
-          </style>
-        </head>
-        <body>
-          ${blog.thumbnail ? `<img src="${blog.thumbnail}" alt="${blog.title}" class="cover-image" />` : ''}
-          <h1>${blog.title}</h1>
-          ${blog.subtitle ? `<p class="subtitle">${blog.subtitle}</p>` : ''}
-          <div class="meta">
-            ${blog.author ? `<span>By ${blog.author}</span>` : ''}
-            ${blog.category ? `<span>• ${blog.category}</span>` : ''}
-            <span>• ${blog.readingTime} min read</span>
-            <span>• ${new Date(blog.createdAt).toLocaleDateString()}</span>
-          </div>
-          <div class="content">${blog.content}</div>
-          ${blog.tags.length > 0 ? `<div class="tags">${blog.tags.map(tag => `<span class="tag">#${tag}</span>`).join('')}</div>` : ''}
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    setTimeout(() => printWindow.print(), 500);
-  };
-
-  // Clear message after 3 seconds
+  // Clear message
   useEffect(() => {
     if (message) {
       const timer = setTimeout(() => setMessage(null), 3000);
       return () => clearTimeout(timer);
     }
   }, [message]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -233,11 +190,18 @@ export default function BlogManagement() {
               </Link>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Blog Management</h1>
-                <p className="text-sm text-muted-foreground">Manage and organize your blog posts</p>
+                <p className="text-sm text-muted-foreground">Welcome, {admin?.name ?? 'Admin'}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
+              <Link href="/services/digixblog/comments">
+                <Button variant="outline" className="gap-2" size="sm">
+                  <MessageSquare size={16} />
+                  <span className="hidden sm:inline">Comments</span>
+                </Button>
+              </Link>
+
               <Button
                 variant="outline"
                 onClick={exportAllBlogs}
@@ -246,7 +210,7 @@ export default function BlogManagement() {
                 size="sm"
               >
                 <Download size={16} />
-                <span className="hidden sm:inline">Export All</span>
+                <span className="hidden sm:inline">Export</span>
               </Button>
 
               <Button
@@ -262,13 +226,21 @@ export default function BlogManagement() {
               <Link href="/services/digixblog">
                 <Button className="gap-2" size="sm">
                   <Plus size={16} />
-                  Create Blog
+                  Create
                 </Button>
               </Link>
+
+              <Button
+                variant="ghost"
+                onClick={() => void handleLogout()}
+                className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                size="sm"
+              >
+                <LogOut size={16} />
+              </Button>
             </div>
           </div>
 
-          {/* Message */}
           {message && (
             <div className={`mt-3 p-3 rounded-lg flex items-center gap-2 ${
               message.type === 'success'
@@ -286,19 +258,17 @@ export default function BlogManagement() {
         {/* Filters */}
         <div className="bg-white rounded-2xl shadow-sm border p-4 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Search */}
             <div className="flex-1 relative">
               <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search blogs by title, author, or tags..."
+                placeholder="Search blogs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-lg border bg-gray-50 focus:bg-white focus:border-primary outline-none transition-all"
               />
             </div>
 
-            {/* Status Filter */}
             <div className="flex items-center gap-2">
               <Filter size={18} className="text-muted-foreground" />
               <select
@@ -312,7 +282,6 @@ export default function BlogManagement() {
               </select>
             </div>
 
-            {/* Category Filter */}
             {categories.length > 0 && (
               <select
                 value={categoryFilter}
@@ -337,7 +306,7 @@ export default function BlogManagement() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{blogs.length}</p>
-                <p className="text-sm text-muted-foreground">Total Blogs</p>
+                <p className="text-sm text-muted-foreground">Total</p>
               </div>
             </div>
           </div>
@@ -372,12 +341,14 @@ export default function BlogManagement() {
 
           <div className="bg-white rounded-xl shadow-sm border p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Tag size={20} className="text-blue-600" />
+              <div className="p-2 bg-pink-100 rounded-lg">
+                <Heart size={20} className="text-pink-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">{categories.length}</p>
-                <p className="text-sm text-muted-foreground">Categories</p>
+                <p className="text-2xl font-bold text-foreground">
+                  {blogs.reduce((sum, b) => sum + (b.likesCount || 0), 0)}
+                </p>
+                <p className="text-sm text-muted-foreground">Total Likes</p>
               </div>
             </div>
           </div>
@@ -411,10 +382,7 @@ export default function BlogManagement() {
         ) : (
           <div className="space-y-4">
             {filteredBlogs.map((blog) => (
-              <div
-                key={blog.id}
-                className="bg-white rounded-2xl shadow-sm border p-6 hover:shadow-md transition-shadow"
-              >
+              <div key={blog.id} className="bg-white rounded-2xl shadow-sm border p-6 hover:shadow-md transition-shadow">
                 <div className="flex flex-col md:flex-row gap-6">
                   {/* Thumbnail */}
                   <div className="flex-shrink-0">
@@ -450,17 +418,17 @@ export default function BlogManagement() {
                               {blog.category}
                             </span>
                           )}
+                          {blog.likesCount > 0 && (
+                            <span className="px-2 py-0.5 bg-pink-50 text-pink-600 rounded-full text-xs font-medium flex items-center gap-1">
+                              <Heart size={10} fill="currentColor" />
+                              {blog.likesCount}
+                            </span>
+                          )}
                         </div>
 
                         <h3 className="text-lg font-semibold text-foreground mb-1 truncate">
                           {blog.title}
                         </h3>
-
-                        {blog.subtitle && (
-                          <p className="text-sm text-muted-foreground mb-2 truncate">
-                            {blog.subtitle}
-                          </p>
-                        )}
 
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           {blog.author && (
@@ -475,11 +443,7 @@ export default function BlogManagement() {
                           </span>
                           <span className="flex items-center gap-1">
                             <Clock size={14} />
-                            {blog.readingTime} min read
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <FileText size={14} />
-                            {blog.wordCount} words
+                            {blog.readingTime} min
                           </span>
                         </div>
 
@@ -490,18 +454,12 @@ export default function BlogManagement() {
                                 #{tag}
                               </span>
                             ))}
-                            {blog.tags.length > 3 && (
-                              <span className="text-xs text-muted-foreground">
-                                +{blog.tags.length - 3} more
-                              </span>
-                            )}
                           </div>
                         )}
                       </div>
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
-                        {/* Preview - opens in new tab */}
                         {blog.status === 'published' && (
                           <a
                             href={`/blog/${blog.slug}`}
@@ -514,7 +472,6 @@ export default function BlogManagement() {
                           </a>
                         )}
 
-                        {/* Toggle Publish Status */}
                         <button
                           onClick={() => void toggleStatus(blog)}
                           disabled={togglingId === blog.id}
@@ -530,34 +487,14 @@ export default function BlogManagement() {
                           )}
                         </button>
 
-                        {/* Edit */}
-                        <button
-                          onClick={() => handleEdit(blog.id)}
+                        <Link
+                          href={`/services/digixblog/edit/${blog.id}`}
                           className="p-2 hover:bg-blue-50 rounded-lg transition-colors"
                           title="Edit"
                         >
                           <Edit3 size={18} className="text-blue-600" />
-                        </button>
+                        </Link>
 
-                        {/* Export JSON */}
-                        <button
-                          onClick={() => exportBlog(blog)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Export JSON"
-                        >
-                          <Download size={18} className="text-gray-500" />
-                        </button>
-
-                        {/* Export PDF */}
-                        <button
-                          onClick={() => exportBlogAsPDF(blog)}
-                          className="p-2 hover:bg-purple-50 rounded-lg transition-colors"
-                          title="Export PDF"
-                        >
-                          <FileText size={18} className="text-purple-600" />
-                        </button>
-
-                        {/* Delete */}
                         <button
                           onClick={() => {
                             setSelectedBlog(blog);
@@ -578,16 +515,11 @@ export default function BlogManagement() {
         )}
       </main>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       {showDeleteModal && selectedBlog && (
         <div 
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowDeleteModal(false);
-              setSelectedBlog(null);
-            }
-          }}
+          onClick={(e) => e.target === e.currentTarget && setShowDeleteModal(false)}
         >
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center gap-4 mb-4">
@@ -596,29 +528,22 @@ export default function BlogManagement() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-foreground">Delete Blog</h3>
-                <p className="text-sm text-muted-foreground">This action cannot be undone</p>
+                <p className="text-sm text-muted-foreground">This cannot be undone</p>
               </div>
             </div>
 
             <p className="text-foreground mb-6">
-              Are you sure you want to delete &ldquo;<span className="font-semibold">{selectedBlog.title}</span>&rdquo;?
+              Delete &ldquo;<span className="font-semibold">{selectedBlog.title}</span>&rdquo;?
             </p>
 
             <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setSelectedBlog(null);
-                }}
-                disabled={deletingId === selectedBlog.id}
-              >
+              <Button variant="outline" onClick={() => setShowDeleteModal(false)}>
                 Cancel
               </Button>
               <button
                 onClick={() => void handleDelete(selectedBlog.id)}
                 disabled={deletingId === selectedBlog.id}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-medium transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-medium transition-colors disabled:opacity-50"
               >
                 {deletingId === selectedBlog.id ? (
                   <Loader2 size={16} className="animate-spin" />
