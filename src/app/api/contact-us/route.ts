@@ -4,11 +4,23 @@ import { Resend } from 'resend';
 
 export const runtime = 'nodejs'; // ✅ Ensures Node environment on Vercel
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // ✅ Add webhook URL to environment variables
+// ✅ Lazy initialization to avoid build-time errors
+let resend: Resend | null = null;
+
+function getResend(): Resend {
+  if (!resend) {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY environment variable is not set');
+    }
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
+}
 
 export async function POST(req: Request) {
   try {
+    const WEBHOOK_URL = process.env.WEBHOOK_URL;
+    
     // ✅ Extract all form fields correctly
     const { name, organization, email, phone, message } = await req.json() as { 
       name: string; 
@@ -26,7 +38,7 @@ export async function POST(req: Request) {
     }
 
     // ✅ Send the email through Resend
-    const data = await resend.emails.send({
+    const data = await getResend().emails.send({
       from: 'connect@dreamlaunch.studio',
       to: ['connect@digicides.com', 'jeet.das@digicides.com', 'manoj.rajput@digicides.com'],
       subject: `New Contact Form Submission from ${name}${organization ? ` (${organization})` : ''}`,

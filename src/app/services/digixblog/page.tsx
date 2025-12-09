@@ -111,6 +111,7 @@ export default function ProfessionalBlogEditor() {
 
   const editorRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
 
   // Templates Data
   const templates: Template[] = [
@@ -319,8 +320,98 @@ export default function ProfessionalBlogEditor() {
     }
   }, [isPreviewMode, content]);
 
+  // Update Active Formats
+  const updateActiveFormats = useCallback((): void => {
+    const f = new Set<string>();
+    if (document.queryCommandState('bold')) f.add('bold');
+    if (document.queryCommandState('italic')) f.add('italic');
+    if (document.queryCommandState('underline')) f.add('underline');
+    if (document.queryCommandState('insertUnorderedList')) f.add('ul');
+    if (document.queryCommandState('insertOrderedList')) f.add('ol');
+    setActiveFormats(f);
+  }, []);
+
+  // Save and Restore Selection for Image Insertion
+  const saveSelection = useCallback((): void => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+    }
+  }, []);
+
+  const restoreSelection = useCallback((): boolean => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+
+    editor.focus();
+
+    if (savedSelectionRef.current) {
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(savedSelectionRef.current);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  // Insert HTML at cursor position with fallback
+  const insertHTMLAtCursor = useCallback((html: string): void => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    // Restore the saved selection first
+    restoreSelection();
+
+    const selection = window.getSelection();
+    
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      
+      // Create a temporary container to parse the HTML
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      
+      // Create a document fragment to hold the nodes
+      const fragment = document.createDocumentFragment();
+      let lastNode: Node | null = null;
+      
+      while (tempDiv.firstChild) {
+        lastNode = fragment.appendChild(tempDiv.firstChild);
+      }
+      
+      range.insertNode(fragment);
+      
+      // Move cursor to after the inserted content
+      if (lastNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastNode);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      }
+    } else {
+      // Fallback: append to end of editor
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      while (tempDiv.firstChild) {
+        editor.appendChild(tempDiv.firstChild);
+      }
+    }
+
+    // Update content state
+    setTimeout(() => {
+      const updated = editor.innerHTML;
+      setContent(updated);
+      updateHistory(updated);
+    }, 10);
+  }, [restoreSelection, updateHistory]);
+
   // Insert Code Block
   const insertCodeBlock = useCallback((): void => {
+    saveSelection();
     const code = prompt('Enter code:');
     if (!code) return;
     
@@ -333,26 +424,22 @@ export default function ProfessionalBlogEditor() {
       <p><br></p>
     `;
 
-    document.execCommand('insertHTML', false, html);
-    
-    setTimeout(() => {
-      if (editorRef.current) {
-        const updated = editorRef.current.innerHTML;
-        setContent(updated);
-        updateHistory(updated);
-      }
-    }, 10);
-  }, [updateHistory]);
+    insertHTMLAtCursor(html);
+  }, [saveSelection, insertHTMLAtCursor]);
 
   // Insert Link
   const insertLink = useCallback((): void => {
+    // Get selected text before prompt
+    const selectedText = window.getSelection()?.toString() ?? '';
+    saveSelection();
+    
     const url = prompt('Enter URL:');
     if (url) {
-      const text = window.getSelection()?.toString() ?? prompt('Link text:') ?? url;
+      const text = selectedText || prompt('Link text:') || url;
       const html = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#3b82f6; text-decoration:underline;">${text}</a>`;
-      document.execCommand('insertHTML', false, html);
+      insertHTMLAtCursor(html);
     }
-  }, []);
+  }, [saveSelection, insertHTMLAtCursor]);
 
   // Format Text
   const formatText = useCallback((format: string, value?: string): void => {
@@ -394,17 +481,6 @@ export default function ProfessionalBlogEditor() {
       playSound('type');
     }, 10);
   }, [textColor, highlightColor, insertCodeBlock, insertLink, updateHistory, playSound]);
-
-  // Update Active Formats
-  const updateActiveFormats = useCallback((): void => {
-    const f = new Set<string>();
-    if (document.queryCommandState('bold')) f.add('bold');
-    if (document.queryCommandState('italic')) f.add('italic');
-    if (document.queryCommandState('underline')) f.add('underline');
-    if (document.queryCommandState('insertUnorderedList')) f.add('ul');
-    if (document.queryCommandState('insertOrderedList')) f.add('ol');
-    setActiveFormats(f);
-  }, []);
 
   // Copy/Paste Format
   const copyFormat = (): void => {
@@ -466,13 +542,11 @@ export default function ProfessionalBlogEditor() {
       };
       reader.readAsDataURL(file);
     }
+    // Reset the input so the same file can be selected again
+    e.target.value = '';
   };
 
-  const insertImage = (url: string, alt: string): void => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    editor.focus();
-
+  const insertImage = useCallback((url: string, alt: string): void => {
     const html = `
       <figure class="image-wrapper" style="margin: 24px 0; text-align: center;">
         <img src="${url}" alt="${alt}" style="max-width:100%; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);" />
@@ -480,23 +554,30 @@ export default function ProfessionalBlogEditor() {
       </figure><p><br></p>
     `;
 
-    document.execCommand('insertHTML', false, html);
+    insertHTMLAtCursor(html);
+    playSound('image');
+  }, [insertHTMLAtCursor, playSound]);
 
-    setTimeout(() => {
-      const updated = editor.innerHTML;
-      setContent(updated);
-      updateHistory(updated);
-    }, 10);
-  };
+  // Handle image upload button click - save selection before opening file dialog
+  const handleImageButtonClick = useCallback((): void => {
+    saveSelection();
+  }, [saveSelection]);
+
+  // Insert image from URL
+  const handleImageFromURL = useCallback((): void => {
+    saveSelection();
+    const url = prompt('Enter image URL:');
+    if (!url) return;
+    
+    const alt = prompt('Enter image description (alt text):', 'Image') ?? 'Image';
+    insertImage(url, alt);
+  }, [saveSelection, insertImage]);
 
   // Video Embed
-  const handleVideoEmbed = (): void => {
+  const handleVideoEmbed = useCallback((): void => {
+    saveSelection();
     const url = prompt('Enter YouTube or direct video URL:');
     if (!url) return;
-
-    const editor = editorRef.current;
-    if (!editor) return;
-    editor.focus();
 
     let embedHtml = '';
 
@@ -527,17 +608,13 @@ export default function ProfessionalBlogEditor() {
     }
 
     if (embedHtml) {
-      document.execCommand('insertHTML', false, embedHtml);
-      setTimeout(() => {
-        const updated = editor.innerHTML;
-        setContent(updated);
-        updateHistory(updated);
-      }, 10);
+      insertHTMLAtCursor(embedHtml);
     }
-  };
+  }, [saveSelection, insertHTMLAtCursor]);
 
   // Table Insertion
-  const insertTable = (): void => {
+  const insertTable = useCallback((): void => {
+    saveSelection();
     const rows = prompt('Number of rows?', '3');
     const cols = prompt('Number of columns?', '3');
     if (!rows || !cols) return;
@@ -559,16 +636,8 @@ export default function ProfessionalBlogEditor() {
     }
     html += '</tbody></table><p><br></p>';
 
-    document.execCommand('insertHTML', false, html);
-
-    setTimeout(() => {
-      if (editorRef.current) {
-        const updated = editorRef.current.innerHTML;
-        setContent(updated);
-        updateHistory(updated);
-      }
-    }, 10);
-  };
+    insertHTMLAtCursor(html);
+  }, [saveSelection, insertHTMLAtCursor]);
 
   // AI Assistant
   const handleAIAssist = async (action: string): Promise<void> => {
@@ -1369,7 +1438,11 @@ ${author ? `**By ${author}**\n` : ''}
 
                       <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1" />
 
-                      <label className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer transition-colors" title="Upload Image">
+                      <label 
+                        className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer transition-colors" 
+                        title="Upload Image from File"
+                        onMouseDown={handleImageButtonClick}
+                      >
                         <input
                           type="file"
                           accept="image/*"
@@ -1379,6 +1452,7 @@ ${author ? `**By ${author}**\n` : ''}
                         <FileImage size={18} />
                       </label>
 
+                      <ToolbarButton onClick={handleImageFromURL} icon={ImageIcon} title="Insert Image from URL" />
                       <ToolbarButton onClick={handleVideoEmbed} icon={Video} title="Embed Video" />
 
                       <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1" />
