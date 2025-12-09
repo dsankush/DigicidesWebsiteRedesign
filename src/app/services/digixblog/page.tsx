@@ -94,6 +94,7 @@ export default function DigiXBlogCreator() {
   
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const savedSelectionRef = useRef<Range | null>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -124,6 +125,76 @@ export default function DigiXBlogCreator() {
     setHistory(newHist);
     setHistoryIndex(newHist.length - 1);
   }, [history, historyIndex]);
+
+  // Save and Restore Selection for reliable content insertion
+  const saveSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      savedSelectionRef.current = selection.getRangeAt(0).cloneRange();
+    }
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    editor.focus();
+    if (savedSelectionRef.current) {
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(savedSelectionRef.current);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  // Insert HTML at cursor position with reliable DOM manipulation
+  const insertHTMLAtCursor = useCallback((html: string) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    restoreSelection();
+    const selection = window.getSelection();
+    
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      
+      const fragment = document.createDocumentFragment();
+      let lastNode: Node | null = null;
+      
+      while (tempDiv.firstChild) {
+        lastNode = fragment.appendChild(tempDiv.firstChild);
+      }
+      
+      range.insertNode(fragment);
+      
+      if (lastNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastNode);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      }
+    } else {
+      // Fallback: append to end
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+      while (tempDiv.firstChild) {
+        editor.appendChild(tempDiv.firstChild);
+      }
+    }
+
+    setTimeout(() => {
+      const updated = editor.innerHTML;
+      setContent(updated);
+      updateHistory(updated);
+    }, 10);
+  }, [restoreSelection, updateHistory]);
 
   const undo = useCallback(() => {
     if (historyIndex > 0) {
@@ -179,10 +250,14 @@ export default function DigiXBlogCreator() {
       case 'foreColor': if (value) document.execCommand('foreColor', false, value); break;
       case 'hiliteColor': if (value) document.execCommand('hiliteColor', false, value); break;
       case 'link': {
+        const selectedText = window.getSelection()?.toString() || '';
+        saveSelection();
         const url = prompt('Enter URL:');
         if (url) {
-          const text = window.getSelection()?.toString() || prompt('Link text:') || url;
-          document.execCommand('insertHTML', false, `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary underline">${text}</a>`);
+          const text = selectedText || prompt('Link text:') || url;
+          const html = `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-primary underline">${text}</a>`;
+          insertHTMLAtCursor(html);
+          return; // insertHTMLAtCursor already handles content update
         }
         break;
       }
@@ -193,7 +268,7 @@ export default function DigiXBlogCreator() {
       setContent(updated);
       updateHistory(updated);
     }, 10);
-  }, [updateHistory]);
+  }, [updateHistory, saveSelection, insertHTMLAtCursor]);
 
   // Insert Emoji
   const insertEmoji = (emoji: string) => {
@@ -209,10 +284,8 @@ export default function DigiXBlogCreator() {
   };
 
   // Insert Video
-  const insertVideo = () => {
-    const editor = editorRef.current;
-    if (!editor || !videoUrl) return;
-    editor.focus();
+  const insertVideo = useCallback(() => {
+    if (!videoUrl) return;
 
     let embedHtml = '';
     const youtubeRegex = /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
@@ -225,16 +298,23 @@ export default function DigiXBlogCreator() {
     }
 
     if (embedHtml) {
-      document.execCommand('insertHTML', false, embedHtml);
-      setTimeout(() => {
-        setContent(editor.innerHTML);
-        updateHistory(editor.innerHTML);
-      }, 10);
+      insertHTMLAtCursor(embedHtml);
     }
 
     setVideoUrl('');
     setShowVideoModal(false);
-  };
+  }, [videoUrl, insertHTMLAtCursor]);
+
+  // Save selection when opening video modal
+  const openVideoModal = useCallback(() => {
+    saveSelection();
+    setShowVideoModal(true);
+  }, [saveSelection]);
+
+  // Save selection before file dialog opens
+  const handleImageButtonClick = useCallback(() => {
+    saveSelection();
+  }, [saveSelection]);
 
   // Image upload
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, forThumbnail = false) => {
@@ -246,16 +326,8 @@ export default function DigiXBlogCreator() {
           if (forThumbnail) {
             setThumbnail(ev.target.result);
           } else {
-            const editor = editorRef.current;
-            if (editor) {
-              editor.focus();
-              const html = `<figure style="margin: 24px 0; text-align: center;"><img src="${ev.target.result}" alt="${file.name}" style="max-width:100%; border-radius:12px;" /><figcaption style="font-size:14px; color:#666; margin-top:8px;">${file.name}</figcaption></figure>`;
-              document.execCommand('insertHTML', false, html);
-              setTimeout(() => {
-                setContent(editor.innerHTML);
-                updateHistory(editor.innerHTML);
-              }, 10);
-            }
+            const html = `<figure style="margin: 24px 0; text-align: center;"><img src="${ev.target.result}" alt="${file.name}" style="max-width:100%; border-radius:12px;" /><figcaption style="font-size:14px; color:#666; margin-top:8px;">${file.name}</figcaption></figure>`;
+            insertHTMLAtCursor(html);
           }
         }
       };
@@ -264,6 +336,16 @@ export default function DigiXBlogCreator() {
     e.target.value = '';
   };
 
+  // Insert image from URL
+  const handleImageFromURL = useCallback(() => {
+    saveSelection();
+    const url = prompt('Enter image URL:');
+    if (!url) return;
+    const alt = prompt('Enter image description:', 'Image') || 'Image';
+    const html = `<figure style="margin: 24px 0; text-align: center;"><img src="${url}" alt="${alt}" style="max-width:100%; border-radius:12px;" /><figcaption style="font-size:14px; color:#666; margin-top:8px;">${alt}</figcaption></figure>`;
+    insertHTMLAtCursor(html);
+  }, [saveSelection, insertHTMLAtCursor]);
+
   // Video upload
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -271,16 +353,8 @@ export default function DigiXBlogCreator() {
       const reader = new FileReader();
       reader.onload = (ev) => {
         if (typeof ev.target?.result === 'string') {
-          const editor = editorRef.current;
-          if (editor) {
-            editor.focus();
-            const html = `<div style="margin: 24px 0;"><video controls style="max-width: 100%; border-radius: 12px;"><source src="${ev.target.result}" type="${file.type}"></video></div>`;
-            document.execCommand('insertHTML', false, html);
-            setTimeout(() => {
-              setContent(editor.innerHTML);
-              updateHistory(editor.innerHTML);
-            }, 10);
-          }
+          const html = `<div style="margin: 24px 0;"><video controls style="max-width: 100%; border-radius: 12px;"><source src="${ev.target.result}" type="${file.type}"></video></div>`;
+          insertHTMLAtCursor(html);
         }
       };
       reader.readAsDataURL(file);
@@ -542,9 +616,10 @@ export default function DigiXBlogCreator() {
                   <ToolbarBtn onClick={() => formatText('link')} icon={LinkIcon} title="Link" />
                   <ToolbarBtn onClick={() => formatText('hr')} icon={Minus} title="Divider" />
                   
-                  <label className="p-2 rounded-lg hover:bg-primary/10 cursor-pointer"><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e)} className="hidden" /><FileImage size={18} /></label>
-                  <button onClick={() => setShowVideoModal(true)} className="p-2 rounded-lg hover:bg-primary/10"><Video size={18} /></button>
-                  <label className="p-2 rounded-lg hover:bg-primary/10 cursor-pointer"><input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" /><FileDown size={18} /></label>
+                  <label className="p-2 rounded-lg hover:bg-primary/10 cursor-pointer" onMouseDown={handleImageButtonClick} title="Upload Image"><input type="file" accept="image/*" onChange={(e) => handleImageUpload(e)} className="hidden" /><FileImage size={18} /></label>
+                  <button onClick={handleImageFromURL} className="p-2 rounded-lg hover:bg-primary/10" title="Insert Image from URL"><LinkIcon size={18} className="text-green-600" /></button>
+                  <button onClick={openVideoModal} className="p-2 rounded-lg hover:bg-primary/10" title="Insert Video"><Video size={18} /></button>
+                  <label className="p-2 rounded-lg hover:bg-primary/10 cursor-pointer" onMouseDown={handleImageButtonClick} title="Upload Video"><input type="file" accept="video/*" onChange={handleVideoUpload} className="hidden" /><FileDown size={18} /></label>
                   <div className="w-px h-6 bg-gray-200 mx-1" />
                   
                   <ToolbarBtn onClick={() => formatText('alignLeft')} icon={AlignLeft} title="Left" />
